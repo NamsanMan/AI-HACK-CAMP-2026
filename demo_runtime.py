@@ -13,6 +13,7 @@ from models.rppg_tcn import RPPGTCN
 from utils.face_detector import FaceDetector
 from utils.landmark_roi import LandmarkROIExtractor
 from utils.rppg_signal import TemporalRGBBuffer, estimate_signal_quality
+from utils.score_smoothing import RiskHysteresis, ScoreSmoother
 from utils.tracker import BBoxSmoother
 from utils.visualization import draw_overlays
 from utils.checkpoints import prefer_fusion_checkpoint
@@ -58,7 +59,15 @@ class RealtimeDeepfakePipeline:
             self.device,
         )
         maybe_load_state(self.fusion, CFG.fusion_weights, self.device)
-        self.last_scores = {"fake_probability": 0.0, "liveness_score": 0.0, "confidence_score": 0.0, "estimated_hr": 0.0}
+        self.last_scores = {
+            "fake_probability": 0.0,
+            "liveness_score": 0.0,
+            "confidence_score": 0.0,
+            "estimated_hr": 0.0,
+            "risk_state": "Low",
+        }
+        self.risk_smoother = ScoreSmoother(CFG.stable_ema_alpha)
+        self.risk_hysteresis = RiskHysteresis()
         self.frame_idx = 0
 
     def close(self):
@@ -121,7 +130,7 @@ class RealtimeDeepfakePipeline:
                     fake = (1.0 - rppg_weight) * artifact_fake + rppg_weight * (
                         0.65 * fusion_fake + 0.35 * artifact_fake
                     )
-                    estimated_hr = signal_quality["estimated_hr"] or float(rppg_out["estimated_hr"].item())
+                    estimated_hr = float(rppg_out["estimated_hr"].item())
                 else:
                     confidence = min(det_score, roi_quality) * max(0.15, fill_ratio)
                     liveness = 0.5 * fill_ratio
@@ -138,6 +147,9 @@ class RealtimeDeepfakePipeline:
                     "estimated_hr": float(estimated_hr),
                 }
                 self.last_scores = self._smooth_scores(raw_scores, fill_ratio)
+                display_risk = self.risk_smoother.update(self.last_scores["fake_probability"])
+                self.last_scores["fake_probability"] = display_risk
+                self.last_scores["risk_state"] = self.risk_hysteresis.update(display_risk)
         else:
             self.last_scores["confidence_score"] = min(self.last_scores["confidence_score"], self.buffer.fill_ratio())
 
