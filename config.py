@@ -26,3 +26,6 @@ class Config:
 
 CFG = Config()
 
+# Backward-compatible constants used by preprocess_ff.py and preprocess_rppg_ff.py.
+FF_ROOT = "datasets/FaceForensics++"
+ARTIFACT_IN_SIZE = CFG.face_crop_size

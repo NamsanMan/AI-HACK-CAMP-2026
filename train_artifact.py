@@ -14,6 +14,7 @@ from models.artifact_cnn import ArtifactCNN
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", default="datasets/FaceForensics++")
+    parser.add_argument("--frames-dir", default="", help="Preprocessed frames root with real/fake subfolders.")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -24,9 +25,9 @@ def parse_args():
 def main():
     args = parse_args()
     device = get_device()
-    dataset = DeepfakeFrameDataset(args.data_root)
+    dataset = DeepfakeFrameDataset(args.data_root, frames_dir=args.frames_dir or None)
     if len(dataset) == 0:
-        raise RuntimeError(f"No FaceForensics++ videos found under {args.data_root}/real and /fake")
+        raise RuntimeError(f"No FaceForensics++ frames/videos found under {args.data_root}")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     model = ArtifactCNN().to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)

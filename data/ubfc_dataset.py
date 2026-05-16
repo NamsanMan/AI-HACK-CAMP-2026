@@ -17,9 +17,9 @@ class UBFCRPPGDataset(Dataset):
         self.stride = stride
         self.samples = []
         for subject in sorted(self.root.glob("subject_*")):
-            video = subject / "video.avi"
+            video = next((subject / name for name in ("video.avi", "vid.avi") if (subject / name).exists()), None)
             gt = subject / "ground_truth.txt"
-            if video.exists() and gt.exists():
+            if video is not None and gt.exists():
                 self.samples.append((video, gt))
 
     def __len__(self):
@@ -61,4 +61,3 @@ class UBFCRPPGDataset(Dataset):
         seq = normalize_roi_sequence(self._video_to_rgb_means(video))
         hr = self._load_hr(gt)
         return torch.from_numpy(seq), torch.tensor(hr, dtype=torch.float32)
-

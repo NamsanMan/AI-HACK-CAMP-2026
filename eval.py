@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from config import CFG
 from data.deepfake_dataset import FusionClipDataset
 from demo_runtime import get_device
 from models.artifact_cnn import ArtifactCNN
@@ -14,6 +15,8 @@ from models.rppg_tcn import RPPGTCN
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", default="datasets/Celeb-DF-v2")
+    parser.add_argument("--frames-dir", default="")
+    parser.add_argument("--rppg-dir", default="")
     parser.add_argument("--fusion-weights", default="")
     parser.add_argument("--batch-size", type=int, default=8)
     return parser.parse_args()
@@ -22,9 +25,14 @@ def parse_args():
 def main():
     args = parse_args()
     device = get_device()
-    dataset = FusionClipDataset(args.data_root)
+    dataset = FusionClipDataset(
+        args.data_root,
+        window_size=CFG.window_size,
+        frames_dir=args.frames_dir or None,
+        rppg_dir=args.rppg_dir or None,
+    )
     if len(dataset) == 0:
-        raise RuntimeError(f"No evaluation videos found under {args.data_root}/real and /fake")
+        raise RuntimeError(f"No matched evaluation frame/rPPG samples found under {args.data_root}")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
     rppg = RPPGTCN().to(device).eval()
     artifact = ArtifactCNN().to(device).eval()
@@ -46,4 +54,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

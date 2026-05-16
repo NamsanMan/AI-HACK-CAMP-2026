@@ -6,6 +6,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from config import CFG
 from data.deepfake_dataset import FusionClipDataset
 from demo_runtime import get_device
 from models.artifact_cnn import ArtifactCNN
@@ -16,6 +17,8 @@ from models.rppg_tcn import RPPGTCN
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", default="datasets/FaceForensics++")
+    parser.add_argument("--frames-dir", default="", help="Preprocessed frames root with real/fake subfolders.")
+    parser.add_argument("--rppg-dir", default="", help="Preprocessed rPPG root with real/fake subfolders.")
     parser.add_argument("--rppg-weights", default="")
     parser.add_argument("--artifact-weights", default="")
     parser.add_argument("--epochs", type=int, default=3)
@@ -33,9 +36,14 @@ def maybe_load(model, path, device):
 def main():
     args = parse_args()
     device = get_device()
-    dataset = FusionClipDataset(args.data_root)
+    dataset = FusionClipDataset(
+        args.data_root,
+        window_size=CFG.window_size,
+        frames_dir=args.frames_dir or None,
+        rppg_dir=args.rppg_dir or None,
+    )
     if len(dataset) == 0:
-        raise RuntimeError(f"No fusion videos found under {args.data_root}/real and /fake")
+        raise RuntimeError(f"No matched frame/rPPG samples found under {args.data_root}")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
     rppg = RPPGTCN().to(device).eval()
@@ -70,4 +78,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

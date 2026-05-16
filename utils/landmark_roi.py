@@ -110,3 +110,14 @@ class LandmarkROIExtractor:
         if x2 <= x1 or y2 <= y1:
             return None
         return cv2.resize(frame_bgr[y1:y2, x1:x2], (size, size), interpolation=cv2.INTER_AREA)
+
+
+class LandmarkROI:
+    """Compatibility wrapper for preprocess_rppg_ff.py."""
+
+    def __init__(self, min_tracking_confidence: float = 0.55):
+        self.extractor = LandmarkROIExtractor(min_tracking_confidence)
+
+    def process(self, frame_bgr):
+        rois, signal, quality = self.extractor.extract(frame_bgr)
+        return signal, rois, quality > 0.0
