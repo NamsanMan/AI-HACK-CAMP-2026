@@ -9,19 +9,19 @@ rPPG/artifact branch checkpoints and the final fusion checkpoint. Add
 Sample-level and video-level metrics with CSV export:
 
 ```powershell
-python eval_final.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --rppg-dir datasets/FaceForensics++/rppg_v2 --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --artifact-backbone rexnet_100 --batch-size 128 --num-workers 2 --csv outputs/final_eval_predictions.csv
+python eval_final.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --rppg-dir datasets/FaceForensics++/rppg_v2 --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --batch-size 128 --num-workers 2 --csv outputs/final_eval_predictions.csv
 ```
 
 ## Real Video Overlay
 
 ```powershell
-python inspect_final_video.py --input datasets/FaceForensics++/original/000.mp4 --output outputs/final_real_000.mp4 --csv outputs/final_real_000.csv --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --artifact-backbone rexnet_100
+python inspect_final_video.py --input datasets/FaceForensics++/original/000.mp4 --output outputs/final_real_000.mp4 --csv outputs/final_real_000.csv --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt
 ```
 
 ## Fake Video Overlay
 
 ```powershell
-python inspect_final_video.py --input datasets/FaceForensics++/Deepfakes/000_003.mp4 --output outputs/final_fake_000_003.mp4 --csv outputs/final_fake_000_003.csv --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --artifact-backbone rexnet_100
+python inspect_final_video.py --input datasets/FaceForensics++/Deepfakes/000_003.mp4 --output outputs/final_fake_000_003.mp4 --csv outputs/final_fake_000_003.csv --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt
 ```
 
 ## Useful Options
@@ -49,13 +49,13 @@ For better webcam/deploy generalization, retrain the artifact branch with
 realtime augmentations enabled. This does not require re-running preprocessing.
 
 ```powershell
-python train_artifact.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --artifact-backbone rexnet_100 --epochs 15 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --backbone-lr 7e-6 --augment
+python train_artifact.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --epochs 15 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --backbone-lr 7e-6 --augment
 ```
 
 Then retrain frozen fusion with augmented face crops:
 
 ```powershell
-python train_fusion.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --rppg-dir datasets/FaceForensics++/rppg_v2 --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --artifact-backbone rexnet_100 --epochs 20 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --augment
+python train_fusion.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --rppg-dir datasets/FaceForensics++/rppg_v2 --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --epochs 20 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --augment
 ```
 
 Use smaller batches for robustness. Avoid branch fine-tuning unless validation

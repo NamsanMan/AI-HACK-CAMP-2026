@@ -24,7 +24,6 @@ def parse_args():
     parser.add_argument("--rppg-dir", default="datasets/FaceForensics++/rppg_v2")
     parser.add_argument("--rppg-weights", default=CFG.rppg_weights)
     parser.add_argument("--artifact-weights", default=CFG.artifact_weights)
-    parser.add_argument("--artifact-backbone", default=CFG.artifact_backbone, choices=["custom", "rexnet_100", "rexnet_150"])
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -167,7 +166,7 @@ def save_checkpoint(path, args, epoch, fusion, rppg, artifact, val_auc, val_acc)
             "epoch": epoch,
             "val_auc": val_auc,
             "val_acc": val_acc,
-            "artifact_backbone": args.artifact_backbone,
+            "artifact_backbone": CFG.artifact_backbone,
             "finetuned_branches": bool(args.finetune_branches),
         },
         out_path,
@@ -182,9 +181,9 @@ def save_checkpoint(path, args, epoch, fusion, rppg, artifact, val_auc, val_acc)
                 "model": artifact.state_dict(),
                 "epoch": epoch,
                 "val_auc": val_auc,
-                "artifact_backbone": args.artifact_backbone,
+                "artifact_backbone": CFG.artifact_backbone,
             },
-            out_path.with_name(f"artifact_{args.artifact_backbone}_fusion_best.pt"),
+            out_path.with_name(f"artifact_{CFG.artifact_backbone}_fusion_best.pt"),
         )
 
 
@@ -236,7 +235,7 @@ def main():
 
     rppg = RPPGTCN().to(device)
     artifact = create_artifact_model(
-        args.artifact_backbone,
+        CFG.artifact_backbone,
         pretrained=not args.no_pretrained and not Path(args.artifact_weights).exists(),
     ).to(device)
     fusion = FusionClassifier().to(device)

@@ -65,7 +65,6 @@ def parse_args():
     parser.add_argument("--rppg-weights", default=CFG.rppg_weights)
     parser.add_argument("--artifact-weights", default=CFG.artifact_weights)
     parser.add_argument("--fusion-weights", default=CFG.fusion_weights)
-    parser.add_argument("--artifact-backbone", default=CFG.artifact_backbone, choices=["custom", "rexnet_100", "rexnet_150"])
     parser.add_argument("--prefer-finetuned-branches", action="store_true")
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--window-size", type=int, default=CFG.window_size)
@@ -154,10 +153,10 @@ def main():
     artifact_weights = args.artifact_weights
     if args.prefer_finetuned_branches:
         rppg_weights = prefer_fusion_checkpoint(rppg_weights, "rppg_fusion_best.pt")
-        artifact_weights = prefer_fusion_checkpoint(artifact_weights, f"artifact_{args.artifact_backbone}_fusion_best.pt")
+        artifact_weights = prefer_fusion_checkpoint(artifact_weights, f"artifact_{CFG.artifact_backbone}_fusion_best.pt")
 
     rppg = RPPGTCN().to(device).eval()
-    artifact = create_artifact_model(args.artifact_backbone, pretrained=False).to(device).eval()
+    artifact = create_artifact_model(CFG.artifact_backbone, pretrained=False).to(device).eval()
     fusion = FusionClassifier().to(device).eval()
     load_state(rppg, rppg_weights, device)
     load_state(artifact, artifact_weights, device)

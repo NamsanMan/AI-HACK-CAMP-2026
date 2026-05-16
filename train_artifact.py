@@ -23,7 +23,6 @@ def parse_args():
     parser.add_argument("--grad-accum-steps", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--backbone-lr", type=float, default=1e-5)
-    parser.add_argument("--artifact-backbone", default=CFG.artifact_backbone, choices=["custom", "rexnet_100", "rexnet_150"])
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
@@ -122,7 +121,7 @@ def main():
     loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     model = create_artifact_model(
-        args.artifact_backbone,
+        CFG.artifact_backbone,
         pretrained=not args.no_pretrained,
     ).to(device)
     if args.resume:
@@ -134,7 +133,7 @@ def main():
         opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     loss_fn = nn.BCELoss()
     best_auc = -1.0
-    best_path = Path(args.out or f"checkpoints/artifact_{args.artifact_backbone}.pt")
+    best_path = Path(args.out or f"checkpoints/artifact_{CFG.artifact_backbone}.pt")
     best_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"dataset={len(split_dataset)} train_frames={len(train_set)} val_frames={len(val_set)} augment={args.augment}")
     for epoch in range(args.epochs):
@@ -164,7 +163,7 @@ def main():
                     "epoch": epoch + 1,
                     "val_auc": val_auc,
                     "val_acc": val_acc,
-                    "artifact_backbone": args.artifact_backbone,
+                    "artifact_backbone": CFG.artifact_backbone,
                 },
                 best_path,
             )

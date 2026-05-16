@@ -17,7 +17,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, help="Input video path.")
     parser.add_argument("--weights", default=CFG.artifact_weights)
-    parser.add_argument("--artifact-backbone", default=CFG.artifact_backbone, choices=["custom", "rexnet_100", "rexnet_150"])
     parser.add_argument("--output", default="", help="Optional output video path.")
     parser.add_argument("--display", action="store_true", help="Show live preview window.")
     parser.add_argument("--sample-every", type=int, default=1, help="Run model every N frames; cached score is reused between runs.")
@@ -46,7 +45,7 @@ def draw_score(frame, bbox, raw_score, display_score, state, frame_idx):
 def main():
     args = parse_args()
     device = get_device()
-    model = create_artifact_model(args.artifact_backbone, pretrained=False).to(device).eval()
+    model = create_artifact_model(CFG.artifact_backbone, pretrained=False).to(device).eval()
     load_weights(model, args.weights, device)
 
     cap = cv2.VideoCapture(args.input)

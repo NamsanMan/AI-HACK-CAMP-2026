@@ -21,19 +21,19 @@ Use the best frozen-branch fusion checkpoint unless branch fine-tuning improved 
 Raw-score ONNX for evaluation/plugin integration without thresholding:
 
 ```powershell
-python export_onnx_raw.py --out checkpoints/pipeline_raw.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --artifact-backbone rexnet_100 --opset 17 --verify
+python export_onnx_raw.py --out checkpoints/pipeline_raw.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --opset 17 --verify
 ```
 
 Full tensor-output ONNX, including internal confidence output:
 
 ```powershell
-python export_onnx.py --out checkpoints/pipeline.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --artifact-backbone rexnet_100 --opset 17 --verify
+python export_onnx.py --out checkpoints/pipeline.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --opset 17 --verify
 ```
 
 If a branch fine-tuned checkpoint is actually better:
 
 ```powershell
-python export_onnx.py --out checkpoints/pipeline.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --artifact-backbone rexnet_100 --prefer-finetuned-branches --opset 17 --verify
+python export_onnx.py --out checkpoints/pipeline.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --prefer-finetuned-branches --opset 17 --verify
 ```
 
 ## Inputs
