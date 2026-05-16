@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from config import CFG
+from data.transforms import normalize_roi_sequence
 from models.artifact_cnn import ArtifactCNN
 from models.fusion_model import FusionClassifier
 from models.rppg_tcn import RPPGTCN
@@ -41,6 +42,21 @@ class RealtimeDeepfakePipeline:
         self.last_scores = {"fake_probability": 0.0, "liveness_score": 0.0, "confidence_score": 0.0, "estimated_hr": 0.0}
         self.frame_idx = 0
 
+    def close(self):
+        self.face_detector.close()
+        self.roi_extractor.close()
+
+    def _smooth_scores(self, scores, fill_ratio):
+        alpha = CFG.warmup_ema_alpha if fill_ratio < 1.0 else CFG.stable_ema_alpha
+        smoothed = {}
+        for key, value in scores.items():
+            old = self.last_scores.get(key, value)
+            if key == "estimated_hr" and value <= 0:
+                smoothed[key] = old
+            else:
+                smoothed[key] = float(alpha * value + (1.0 - alpha) * old)
+        return smoothed
+
     @torch.no_grad()
     def process(self, frame_bgr, fps_hint: float):
         bbox, det_score, _ = self.face_detector.detect(frame_bgr)
@@ -48,36 +64,61 @@ class RealtimeDeepfakePipeline:
         rois, roi_rgb, roi_quality = self.roi_extractor.extract(frame_bgr, bbox=bbox)
         self.buffer.append(roi_rgb)
 
-        should_score = self.frame_idx % CFG.score_interval_frames == 0 and self.buffer.ready()
+        should_score = self.frame_idx % CFG.score_interval_frames == 0 and bbox is not None
         self.frame_idx += 1
-        if should_score and bbox is not None:
+        if should_score:
             face = self.roi_extractor.aligned_face_crop(frame_bgr, bbox, CFG.face_crop_size)
             if face is not None:
-                x_roi = torch.from_numpy(self.buffer.array()).unsqueeze(0).to(self.device)
                 face_tensor = to_face_tensor(face, self.device)
-                signal_quality = estimate_signal_quality(self.buffer.array(), fps_hint)
-                rppg_out = self.rppg(x_roi)
                 art_out = self.artifact(face_tensor)
-                quality = torch.tensor(
-                    [[roi_quality, det_score, signal_quality["motion_quality"]]],
-                    dtype=torch.float32,
-                    device=self.device,
-                )
-                fused = self.fusion(rppg_out["feature"], art_out["feature"], quality)
+                artifact_fake = float(art_out["artifact_fake"].item())
+                fill_ratio = self.buffer.fill_ratio()
+                has_partial_rppg = len(self.buffer) >= CFG.min_partial_rppg_frames
 
-                confidence = float(fused["confidence_score"].item())
-                confidence = 0.55 * confidence + 0.45 * min(roi_quality, det_score, signal_quality["motion_quality"])
-                liveness = 0.50 * float(fused["liveness_score"].item()) + 0.30 * signal_quality["pulse_consistency"] + 0.20 * float(rppg_out["rppg_liveness"].item())
-                fake = 0.65 * float(fused["fake_probability"].item()) + 0.35 * float(art_out["artifact_fake"].item())
+                if has_partial_rppg:
+                    roi_window = self.buffer.padded_array()
+                    roi_window = normalize_roi_sequence(roi_window)
+                    x_roi = torch.from_numpy(roi_window).unsqueeze(0).to(self.device)
+                    signal_quality = estimate_signal_quality(self.buffer.array(), fps_hint)
+                    rppg_out = self.rppg(x_roi)
+                    motion_quality = signal_quality["motion_quality"] * min(fill_ratio, 1.0)
+                    quality = torch.tensor(
+                        [[roi_quality * fill_ratio, det_score, motion_quality]],
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
+                    fused = self.fusion(rppg_out["feature"], art_out["feature"], quality)
+
+                    rppg_weight = min(fill_ratio, 1.0)
+                    fusion_fake = float(fused["fake_probability"].item())
+                    confidence = float(fused["confidence_score"].item())
+                    confidence = 0.55 * confidence + 0.45 * min(roi_quality, det_score, motion_quality)
+                    confidence *= 0.35 + 0.65 * rppg_weight
+                    liveness = (
+                        0.50 * float(fused["liveness_score"].item())
+                        + 0.30 * signal_quality["pulse_consistency"]
+                        + 0.20 * float(rppg_out["rppg_liveness"].item())
+                    )
+                    fake = (1.0 - rppg_weight) * artifact_fake + rppg_weight * (
+                        0.65 * fusion_fake + 0.35 * artifact_fake
+                    )
+                    estimated_hr = signal_quality["estimated_hr"] or float(rppg_out["estimated_hr"].item())
+                else:
+                    confidence = min(det_score, roi_quality) * max(0.15, fill_ratio)
+                    liveness = 0.5 * fill_ratio
+                    fake = artifact_fake
+                    estimated_hr = 0.0
+
                 if confidence < 0.35:
-                    fake *= 0.8
+                    fake *= 0.9
 
-                self.last_scores = {
+                raw_scores = {
                     "fake_probability": float(np.clip(fake, 0.0, 1.0)),
                     "liveness_score": float(np.clip(liveness, 0.0, 1.0)),
                     "confidence_score": float(np.clip(confidence, 0.0, 1.0)),
-                    "estimated_hr": signal_quality["estimated_hr"] or float(rppg_out["estimated_hr"].item()),
+                    "estimated_hr": float(estimated_hr),
                 }
+                self.last_scores = self._smooth_scores(raw_scores, fill_ratio)
         else:
             self.last_scores["confidence_score"] = min(self.last_scores["confidence_score"], self.buffer.fill_ratio())
 
@@ -98,24 +139,26 @@ def run_capture(source=0, window_name="Real-Time Deepfake rPPG Prototype"):
     if not fps_hint or fps_hint < 1:
         fps_hint = CFG.target_fps
 
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        now = time.time()
-        inst_fps = 1.0 / max(now - prev, 1e-6)
-        prev = now
-        smoothed_fps = inst_fps if smoothed_fps == 0 else 0.9 * smoothed_fps + 0.1 * inst_fps
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            now = time.time()
+            inst_fps = 1.0 / max(now - prev, 1e-6)
+            prev = now
+            smoothed_fps = inst_fps if smoothed_fps == 0 else 0.9 * smoothed_fps + 0.1 * inst_fps
 
-        bbox, rois, scores = pipeline.process(frame, fps_hint)
-        draw_overlays(frame, bbox=bbox, rois=rois, scores=scores, fps=smoothed_fps)
-        cv2.imshow(window_name, frame)
-        key = cv2.waitKey(1) & 0xFF
-        if key in (ord("q"), 27):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+            bbox, rois, scores = pipeline.process(frame, fps_hint)
+            draw_overlays(frame, bbox=bbox, rois=rois, scores=scores, fps=smoothed_fps)
+            cv2.imshow(window_name, frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                break
+    finally:
+        pipeline.close()
+        cap.release()
+        cv2.destroyAllWindows()
 
 
 def normalized_input_path(path: str):

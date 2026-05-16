@@ -10,6 +10,7 @@ from demo_runtime import get_device
 from models.artifact_cnn import ArtifactCNN
 from models.fusion_model import FusionClassifier
 from models.rppg_tcn import RPPGTCN
+from utils.checkpoints import prefer_fusion_checkpoint
 
 
 def parse_args():
@@ -17,6 +18,8 @@ def parse_args():
     parser.add_argument("--data-root", default="datasets/Celeb-DF-v2")
     parser.add_argument("--frames-dir", default="")
     parser.add_argument("--rppg-dir", default="")
+    parser.add_argument("--rppg-weights", default="")
+    parser.add_argument("--artifact-weights", default="")
     parser.add_argument("--fusion-weights", default="")
     parser.add_argument("--batch-size", type=int, default=8)
     return parser.parse_args()
@@ -27,7 +30,9 @@ def main():
     device = get_device()
     dataset = FusionClipDataset(
         args.data_root,
+        image_size=CFG.face_crop_size,
         window_size=CFG.window_size,
+        window_stride=CFG.score_interval_frames,
         frames_dir=args.frames_dir or None,
         rppg_dir=args.rppg_dir or None,
     )
@@ -37,6 +42,12 @@ def main():
     rppg = RPPGTCN().to(device).eval()
     artifact = ArtifactCNN().to(device).eval()
     fusion = FusionClassifier().to(device).eval()
+    rppg_weights = prefer_fusion_checkpoint(args.rppg_weights, "rppg_fusion_best.pt")
+    artifact_weights = prefer_fusion_checkpoint(args.artifact_weights, "artifact_fusion_best.pt")
+    if rppg_weights:
+        rppg.load_state_dict(torch.load(rppg_weights, map_location=device))
+    if artifact_weights:
+        artifact.load_state_dict(torch.load(artifact_weights, map_location=device))
     if args.fusion_weights:
         fusion.load_state_dict(torch.load(args.fusion_weights, map_location=device))
 

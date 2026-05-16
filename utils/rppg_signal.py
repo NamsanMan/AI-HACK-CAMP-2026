@@ -16,6 +16,18 @@ class TemporalRGBBuffer:
     def array(self):
         return np.stack(self.values, axis=0)
 
+    def padded_array(self):
+        if not self.values:
+            return np.zeros((self.values.maxlen, 9), dtype=np.float32)
+        x = np.stack(self.values, axis=0)
+        if len(x) >= self.values.maxlen:
+            return x[-self.values.maxlen :]
+        pad = np.repeat(x[:1], self.values.maxlen - len(x), axis=0)
+        return np.concatenate([pad, x], axis=0).astype(np.float32)
+
+    def __len__(self):
+        return len(self.values)
+
     def fill_ratio(self):
         return len(self.values) / float(self.values.maxlen)
 
@@ -39,4 +51,3 @@ def estimate_signal_quality(x: np.ndarray, fps: float):
         hr = 0.0
     motion_quality = float(np.clip(1.0 - diff_energy * 30.0, 0.0, 1.0))
     return {"pulse_consistency": consistency, "estimated_hr": hr, "motion_quality": motion_quality}
-

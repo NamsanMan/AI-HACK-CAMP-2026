@@ -38,7 +38,9 @@ def main():
     device = get_device()
     dataset = FusionClipDataset(
         args.data_root,
+        image_size=CFG.face_crop_size,
         window_size=CFG.window_size,
+        window_stride=CFG.score_interval_frames,
         frames_dir=args.frames_dir or None,
         rppg_dir=args.rppg_dir or None,
     )
@@ -73,6 +75,8 @@ def main():
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     torch.save(fusion.state_dict(), args.out)
+    torch.save(rppg.state_dict(), Path(args.out).with_name("rppg_fusion_best.pt"))
+    torch.save(artifact.state_dict(), Path(args.out).with_name("artifact_fusion_best.pt"))
     print(f"saved {args.out}")
 
 

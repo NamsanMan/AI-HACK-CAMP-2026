@@ -6,6 +6,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from config import CFG
 from data.deepfake_dataset import DeepfakeFrameDataset
 from demo_runtime import get_device
 from models.artifact_cnn import ArtifactCNN
@@ -25,7 +26,7 @@ def parse_args():
 def main():
     args = parse_args()
     device = get_device()
-    dataset = DeepfakeFrameDataset(args.data_root, frames_dir=args.frames_dir or None)
+    dataset = DeepfakeFrameDataset(args.data_root, image_size=CFG.face_crop_size, frames_dir=args.frames_dir or None)
     if len(dataset) == 0:
         raise RuntimeError(f"No FaceForensics++ frames/videos found under {args.data_root}")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)

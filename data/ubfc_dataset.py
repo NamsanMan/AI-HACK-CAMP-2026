@@ -26,10 +26,14 @@ class UBFCRPPGDataset(Dataset):
         return len(self.samples)
 
     def _load_hr(self, gt_path):
-        values = np.loadtxt(gt_path, ndmin=1)
-        if values.ndim > 1:
-            values = values.reshape(-1)
-        plausible = values[(values >= 35) & (values <= 220)]
+        values = np.loadtxt(gt_path, ndmin=2)
+        if values.shape[0] >= 2:
+            hr_values = values[1, :]
+        elif values.shape[1] >= 2:
+            hr_values = values[:, 1]
+        else:
+            hr_values = values.reshape(-1)
+        plausible = hr_values[(hr_values >= 35) & (hr_values <= 220)]
         return float(plausible.mean()) if plausible.size else 75.0
 
     def _video_to_rgb_means(self, path):

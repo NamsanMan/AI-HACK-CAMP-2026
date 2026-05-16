@@ -9,7 +9,7 @@ from data.transforms import frame_to_tensor_bgr, normalize_roi_sequence
 
 
 class DeepfakeFrameDataset(Dataset):
-    def __init__(self, root="datasets/FaceForensics++", image_size=128, max_frames_per_video=8, frames_dir=None):
+    def __init__(self, root="datasets/FaceForensics++", image_size=96, max_frames_per_video=8, frames_dir=None):
         self.root = Path(root)
         self.image_size = image_size
         self.max_frames_per_video = max_frames_per_video
@@ -58,16 +58,19 @@ class FusionClipDataset(Dataset):
     def __init__(
         self,
         root="datasets/FaceForensics++",
-        image_size=128,
+        image_size=96,
         window_size=90,
+        window_stride=30,
         frames_dir=None,
         rppg_dir=None,
     ):
         self.root = Path(root)
         self.image_size = image_size
         self.window_size = window_size
+        self.window_stride = max(1, window_stride)
         self.frames_root = Path(frames_dir) if frames_dir else self.root / "frames"
         self.rppg_root = Path(rppg_dir) if rppg_dir else self.root / "rppg"
+        self._length_cache = {}
         self.samples = []
 
         if self.frames_root.exists() and self.rppg_root.exists():
@@ -76,19 +79,29 @@ class FusionClipDataset(Dataset):
                     stem = rppg_path.stem.removesuffix("_rppg")
                     frames = sorted((self.frames_root / label_name).glob(f"{stem}_f*.jpg"))
                     if frames:
-                        self.samples.append((rppg_path, frames, label))
+                        seq_len = self._sequence_length(rppg_path)
+                        max_start = max(0, seq_len - self.window_size)
+                        starts = list(range(0, max_start + 1, self.window_stride)) or [0]
+                        if starts[-1] != max_start:
+                            starts.append(max_start)
+                        for start in starts:
+                            self.samples.append((rppg_path, frames, label, start))
 
     def __len__(self):
         return len(self.samples)
 
-    def _load_roi_window(self, path):
+    def _sequence_length(self, path):
+        if path not in self._length_cache:
+            self._length_cache[path] = int(np.load(path, mmap_mode="r").shape[0])
+        return self._length_cache[path]
+
+    def _load_roi_window(self, path, start):
         seq = np.load(path).astype(np.float32)
         if seq.size == 0:
             seq = np.zeros((self.window_size, 9), dtype=np.float32)
         if np.nanmax(seq) > 2.0:
             seq = seq / 255.0
         if len(seq) >= self.window_size:
-            start = np.random.randint(0, len(seq) - self.window_size + 1)
             seq = seq[start : start + self.window_size]
         else:
             pad = np.repeat(seq[-1:], self.window_size - len(seq), axis=0)
@@ -96,8 +109,8 @@ class FusionClipDataset(Dataset):
         return torch.from_numpy(normalize_roi_sequence(seq))
 
     def __getitem__(self, idx):
-        rppg_path, frames, label = self.samples[idx]
-        roi = self._load_roi_window(rppg_path)
+        rppg_path, frames, label, start = self.samples[idx]
+        roi = self._load_roi_window(rppg_path, start)
         frame_path = frames[np.random.randint(0, len(frames))]
         frame = cv2.imread(str(frame_path))
         if frame is None:
