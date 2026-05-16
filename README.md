@@ -1,88 +1,42 @@
-# Real-Time Video Call Deepfake Detection Plugin Prototype
+# Deepfake Risk Estimation Model Framework
 
-실시간 영상통화 환경에서 얼굴 영상의 deepfake 또는 피싱 위험도를 추정하는 해커톤 프로토타입입니다.
+이 저장소는 얼굴 기반 deepfake 위험도 추정을 위한 **멀티브랜치 모델 프레임워크**를 다룹니다.
 
-이 프로젝트는 얼굴 이미지의 시각적 조작 흔적만 보는 방식이 아니라, 얼굴 피부 영역의 RGB temporal signal에서 얻는 rPPG 계열 정보도 함께 사용합니다.
+핵심 목표는 얼굴 이미지의 시각적 조작 흔적과 얼굴 피부 영역의 RGB temporal signal을 함께 사용해 deepfake risk score와 liveness score를 추정하는 것입니다.
 
-최종 목표는 웹캠 또는 비디오 입력에서 다음 값을 실시간으로 표시하는 것입니다.
+## 모델 프레임워크 개요
 
-- `fake_probability`: deepfake risk score
-- `liveness_score`: 입력 얼굴이 실제 생체 신호와 일관적인지에 대한 보조 점수
-- `risk state`: `Low Risk`, `Watch`, `High Risk`, `Unverified`
-- FPS, face bbox, cheek/forehead ROI overlay
-
-> 이 프로젝트의 출력은 법적/보안적 확정 판정이 아니라 실시간 위험도 보조 지표입니다.
-
-## Key Features
-
-- Webcam / video file inference
-- MediaPipe Tasks API 기반 face detection 및 FaceLandmarker
-- Landmark 기반 `left cheek`, `right cheek`, `forehead` ROI 추출
-- ROI RGB mean 기반 rPPG temporal buffer
-- ReXNet-100 artifact branch
-- rPPG TCN branch
-- Fusion classifier
-- ONNX export for plugin/runtime deployment
-- Score smoothing, hysteresis, `Unverified` gating
-
-## Pipeline
+![전체 파이프라인](docs/assets/overall_pipeline_korean.png)
 
 ```text
-Raw video frame
- -> MediaPipe face detector
- -> face bbox
- -> MediaPipe FaceLandmarker
- -> cheek/forehead ROI polygons
- -> ROI RGB mean signal, shape T x 9
- -> face crop, shape 3 x 96 x 96
- -> rPPG TCN branch
- -> ReXNet-100 artifact branch
- -> fusion classifier
- -> fake probability / liveness score / confidence score
- -> UI smoothing + risk thresholding
+얼굴 crop 이미지
+  -> ReXNet-100 artifact branch
+
+볼/이마 ROI RGB 시계열
+  -> rPPG TCN branch
+
+artifact feature + rPPG feature + quality feature
+  -> fusion classifier
+  -> fake probability / liveness score
 ```
 
-## Repository Structure
+이 구조는 rPPG만으로 fake 여부를 판단하지 않습니다. rPPG branch는 liveness와 temporal consistency를 보조하고, artifact branch는 얼굴 texture와 합성 흔적을 분석합니다. 최종 판단은 fusion classifier가 두 branch의 feature를 결합해 수행합니다.
+
+## 입력 형식
+
+모델은 원본 영상을 직접 입력으로 받지 않습니다. 모델 기준 입력은 다음 세 가지 tensor입니다.
 
 ```text
-AI_HACKCAMP_2026/
-  config.py
-  demo_webcam.py
-  demo_video.py
-  demo_runtime.py
-
-  preprocess_face_frames.py
-  preprocess_rppg_ff.py
-  preprocess_ubfc_rppg.py
-
-  train_rppg.py
-  train_artifact.py
-  train_fusion.py
-  eval_final.py
-
-  inspect_final_video.py
-  export_onnx.py
-  export_onnx_raw.py
-
-  data/
-  models/
-  utils/
-  docs/
+rppg_window: B x 90 x 9
+face_crop:   B x 3 x 96 x 96
+quality:     B x 3
 ```
 
-## Model Design
+### rPPG 입력
 
-### 1. rPPG Branch
+`rppg_window`는 볼과 이마 ROI의 RGB 평균값으로 구성된 temporal signal입니다.
 
-The rPPG branch receives raw ROI RGB temporal signals, not image feature vectors.
-
-Input:
-
-```text
-rppg_window: 90 x 9
-```
-
-Each frame contributes 9 values:
+한 frame의 rPPG raw signal:
 
 ```text
 R_left, G_left, B_left,
@@ -90,38 +44,92 @@ R_right, G_right, B_right,
 R_forehead, G_forehead, B_forehead
 ```
 
-The branch is implemented as a lightweight temporal model and outputs:
+기본 window는 90 frames이며, 30 FPS 기준 약 3초 길이입니다.
 
-- rPPG feature
-- estimated HR
-- rPPG liveness score
+### Artifact 입력
 
-### 2. Artifact Branch
-
-The artifact branch receives a face crop:
+`face_crop`은 얼굴 bbox 기준 crop을 `96 x 96`으로 resize한 RGB tensor입니다.
 
 ```text
 face_crop: 3 x 96 x 96
+value range: 0..1
 ```
 
-The current implementation uses `ReXNet-100` through `timm`.
+### Quality 입력
 
-The branch is trained to detect visual artifacts such as:
+`quality`는 fusion classifier가 입력 신뢰도를 참고할 수 있도록 제공하는 보조 feature입니다.
 
-- texture inconsistency
-- blending artifacts
-- boundary artifacts
-- compression-sensitive fake patterns
+```text
+quality[0] = ROI quality
+quality[1] = face / landmark detection quality
+quality[2] = motion or signal quality
+```
+
+## Landmark ROI 구성
+
+rPPG branch는 얼굴 전체가 아니라 피부 노출 영역의 RGB 변화를 사용합니다.
+
+사용 ROI:
+
+- left cheek
+- right cheek
+- forehead
+
+현재 환경에서는 MediaPipe Tasks API의 `FaceLandmarker`를 사용해 얼굴 landmark를 추출했습니다.
+
+```text
+mediapipe version = 0.10.35
+mp.solutions = 없음
+mp.tasks = 있음
+```
+
+FaceLandmarker가 반환한 landmark 좌표를 pixel 좌표로 변환한 뒤, 볼과 이마에 해당하는 landmark index들을 polygon으로 묶어 ROI를 구성합니다.
+
+## Branch 구조
+
+### 1. rPPG TCN Branch
+
+입력:
+
+```text
+B x 90 x 9
+```
+
+역할:
+
+- ROI RGB temporal pattern 분석
+- estimated HR 추정
+- rPPG liveness feature 생성
+
+이 branch는 이미지 feature vector가 아니라 원본 RGB temporal signal을 사용합니다.
+
+### 2. ReXNet-100 Artifact Branch
+
+입력:
+
+```text
+B x 3 x 96 x 96
+```
+
+역할:
+
+- 얼굴 texture artifact 분석
+- blending / boundary artifact 분석
+- 압축과 합성 흔적에 민감한 visual feature 생성
+
+현재 artifact backbone은 ReXNet-100으로 고정되어 있습니다.
 
 ### 3. Fusion Classifier
 
-The fusion classifier combines:
+입력:
 
-- rPPG feature
-- artifact feature
-- quality feature
+```text
+rPPG feature
+artifact feature
+quality feature
+```
 
-Output:
+출력:
 
 ```text
 fake_probability
@@ -129,64 +137,83 @@ liveness_score
 confidence_score
 ```
 
-For user-facing UI, confidence is used internally. The UI displays a stable risk state rather than a hard binary judgment.
+최종 risk score는 `fake_probability`를 중심으로 해석합니다. `confidence_score`는 입력 품질과 예측 안정성을 보조적으로 해석하기 위한 값입니다.
 
-## Face Crop And Landmark Extraction
+## 학습 구조
 
-### Face Crop
+학습은 세 단계로 구성됩니다.
 
-The artifact branch does not receive the full frame.
+### Stage 1. rPPG Branch 학습
 
-The face crop is generated from a detected face bbox:
-
-```text
-face bbox
- -> x padding: 15%
- -> y padding: 20%
- -> clamp to frame boundary
- -> resize to 96 x 96
- -> RGB float tensor in 0..1
-```
-
-ImageNet normalization is handled inside the model/export path where applicable.
-
-### FaceLandmarker
-
-The current environment uses:
+데이터셋:
 
 ```text
-mediapipe version = 0.10.35
-mp.solutions = not available
-mp.tasks = available
+UBFC-rPPG
 ```
 
-Therefore landmark extraction is performed with:
+목표:
 
 ```text
-MediaPipe Tasks API FaceLandmarker
+ROI RGB temporal signal -> HR / pulse-related representation
 ```
 
-The landmark polygons are used to extract:
+명령 예시:
 
-- left cheek
-- right cheek
-- forehead
+```powershell
+python train_rppg.py --data-root datasets/UBFC-rPPG --windows-dir datasets/UBFC-rPPG/windows --epochs 50 --batch-size 32 --val-ratio 0.2 --lr 1e-3
+```
 
-If landmark extraction fails but a face bbox exists, a bbox-based fallback ROI can be used with lower quality.
+### Stage 2. Artifact Branch 학습
 
-## Dataset Layout
+데이터셋:
 
-Datasets are not included in the repository.
+```text
+FaceForensics++ face_frames
+```
 
-Expected layout:
+목표:
+
+```text
+face crop -> real / fake probability
+```
+
+명령 예시:
+
+```powershell
+python train_artifact.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --epochs 15 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --backbone-lr 7e-6 --augment
+```
+
+### Stage 3. Fusion Classifier 학습
+
+데이터셋:
+
+```text
+FaceForensics++ face_frames
+FaceForensics++ rppg_v2
+```
+
+목표:
+
+```text
+rPPG feature + artifact feature + quality feature -> final fake probability
+```
+
+명령 예시:
+
+```powershell
+python train_fusion.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --rppg-dir datasets/FaceForensics++/rppg_v2 --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --epochs 20 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --augment
+```
+
+## 데이터셋 구조
+
+데이터셋은 저장소에 포함하지 않습니다.
+
+예상 구조:
 
 ```text
 datasets/
   UBFC-rPPG/
     subject_01/
-      vid.avi
-      ground_truth.txt
-    subject_02/
       vid.avi
       ground_truth.txt
 
@@ -203,118 +230,30 @@ datasets/
       fake/*_rppg.npy
 ```
 
-## Installation
+## 평가 참고값
 
-```powershell
-cd D:\pytorch_projects\AI_HACKCAMP_2026
-pip install -r requirements.txt
-```
-
-CUDA is used automatically when available. CPU inference is also supported, but FPS may vary by hardware.
-
-## Preprocessing
-
-### 1. Extract Face Frames
-
-```powershell
-python preprocess_face_frames.py --root datasets/FaceForensics++ --out-dir datasets/FaceForensics++/face_frames --n-frames 10 --size 96
-```
-
-### 2. Extract FaceForensics++ rPPG Signals
-
-```powershell
-python preprocess_rppg_ff.py --root datasets/FaceForensics++ --out-dir datasets/FaceForensics++/rppg_v2 --every-n 1
-```
-
-### 3. Preprocess UBFC-rPPG Windows
-
-```powershell
-python preprocess_ubfc_rppg.py --root datasets/UBFC-rPPG --out-dir datasets/UBFC-rPPG/windows --window-size 90 --stride 30
-```
-
-## Training
-
-### Stage 1. Train rPPG Branch
-
-```powershell
-python train_rppg.py --data-root datasets/UBFC-rPPG --windows-dir datasets/UBFC-rPPG/windows --epochs 50 --batch-size 32 --val-ratio 0.2 --lr 1e-3
-```
-
-### Stage 2. Train ReXNet Artifact Branch
-
-```powershell
-python train_artifact.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --epochs 15 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --backbone-lr 7e-6 --augment
-```
-
-### Stage 3. Train Fusion Classifier
-
-```powershell
-python train_fusion.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --rppg-dir datasets/FaceForensics++/rppg_v2 --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --epochs 20 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --augment
-```
-
-## Evaluation
-
-```powershell
-python eval_final.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --rppg-dir datasets/FaceForensics++/rppg_v2 --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --batch-size 128 --num-workers 2 --csv outputs/final_eval_predictions.csv
-```
-
-Example internal validation result on the prepared FaceForensics++ split:
+현재 준비된 FaceForensics++ split 기준 내부 검증 예시:
 
 ```text
 sample_level acc=0.8550 auc=0.9414
 video_level  acc=0.9070 auc=0.9773
 ```
 
-These numbers are provided as a reference for the current hackathon prototype and should be re-evaluated when the dataset split or preprocessing changes.
+이 값은 데이터 split, preprocessing, checkpoint에 따라 달라질 수 있습니다.
 
-## Demo
+## ONNX 변환 범위
 
-### Webcam
+ONNX export는 모델 inference graph를 배포하기 위한 것입니다.
 
-```powershell
-python demo_webcam.py
+ONNX에 포함되는 부분:
+
+```text
+rPPG TCN branch
+ReXNet-100 artifact branch
+fusion classifier
 ```
 
-### Video File
-
-```powershell
-python demo_video.py --input path/to/video.mp4
-```
-
-### Save A Visualization Video
-
-```powershell
-python inspect_final_video.py --input datasets/FaceForensics++/Deepfakes/001_870.mp4 --output outputs/demo_fake_001_870.mp4 --csv outputs/demo_fake_001_870.csv --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt
-```
-
-## ONNX Export
-
-The ONNX model contains only the neural inference graph.
-
-It does not include:
-
-- video capture
-- face detection
-- FaceLandmarker
-- ROI polygon extraction
-- RGB mean extraction
-- temporal buffering
-- smoothing / thresholding
-- UI rendering
-
-Raw-score ONNX:
-
-```powershell
-python export_onnx_raw.py --out checkpoints/pipeline_raw.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --opset 17 --verify
-```
-
-Full-output ONNX:
-
-```powershell
-python export_onnx.py --out checkpoints/pipeline.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --opset 17 --verify
-```
-
-ONNX input contract:
+ONNX 입력:
 
 ```text
 rppg_window: B x 90 x 9
@@ -322,48 +261,48 @@ face_crop:   B x 3 x 96 x 96
 quality:     B x 3
 ```
 
-See [ONNX_DEPLOYMENT.md](ONNX_DEPLOYMENT.md) for runtime integration details.
+ONNX 변환 명령 예시:
 
-## Runtime Risk Policy
-
-The runtime does not immediately treat every high raw score as a final warning.
-
-It applies:
-
-- EMA smoothing
-- hysteresis thresholds
-- quality gating
-- `Unverified` state for poor face/ROI quality
-
-Default UI policy:
-
-```text
-Low Risk:   risk < 0.65
-Watch:      enters at 0.65, exits below 0.55
-High Risk: enters at 0.85, exits below 0.75
-Unverified: poor face, landmark, ROI, or buffer quality
+```powershell
+python export_onnx_raw.py --out checkpoints/pipeline_raw.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --opset 17 --verify
 ```
 
-If the face is missing, turned away, too small, or landmarks are unstable, the system should display `Unverified` rather than forcing `High Risk`.
+자세한 입력/출력 계약은 [ONNX_DEPLOYMENT.md](ONNX_DEPLOYMENT.md)를 참고하세요.
 
-## Documentation
+## 주요 코드
 
-- [Judge Guide](docs/judge_guide.md)
-- [Dataset, Model, Training Overview](docs/dataset_model_training_overview.md)
-- [ONNX Deployment Contract](ONNX_DEPLOYMENT.md)
-- [Final Test And Visualization Commands](FINAL_TEST.md)
+```text
+models/rppg_tcn.py          rPPG temporal branch
+models/artifact_rexnet.py   ReXNet-100 artifact branch
+models/fusion_model.py      Fusion classifier
+models/artifact_factory.py  Artifact model factory
+data/                       Dataset loaders
+utils/landmark_roi.py       Landmark ROI extraction utility
+train_rppg.py               rPPG branch training
+train_artifact.py           Artifact branch training
+train_fusion.py             Fusion classifier training
+eval_final.py               Final evaluation
+export_onnx_raw.py          Raw-score ONNX export
+export_onnx.py              Full-output ONNX export
+```
 
-## Limitations
+## 문서
 
-- This is a hackathon prototype, not a production-grade anti-fraud system.
-- Generalization can drop on highly dynamic videos, unusual lighting, heavy blur, or unseen deepfake generation methods.
-- rPPG is used as a supporting liveness signal, not as a standalone deepfake detector.
-- Fake videos can still produce periodic RGB changes, so HR display is hidden or marked unreliable in `High Risk` or `Unverified` states.
-- The ONNX model requires a matching runtime preprocessing pipeline.
+- [심사용 요약 가이드](docs/judge_guide.md)
+- [데이터셋, 모델 설계, 학습 방법 설명서](docs/dataset_model_training_overview.md)
+- [ONNX 배포 계약](ONNX_DEPLOYMENT.md)
+- [최종 평가 및 시각화 명령어](FINAL_TEST.md)
 
-## Large Files
+## 한계
 
-The repository excludes large datasets, checkpoints, ONNX files, and generated outputs through `.gitignore`.
+- rPPG는 보조 liveness signal이며, 단독 deepfake detector가 아닙니다.
+- 모델 성능은 face crop 품질, ROI 추출 품질, 데이터셋 분포에 영향을 받습니다.
+- unseen deepfake generation 방식이나 강한 motion/blur 조건에서는 일반화 성능이 낮아질 수 있습니다.
+- 본 저장소는 해커톤 프로토타입 모델 프레임워크이며, 실제 보안 제품 수준의 검증 시스템은 아닙니다.
+
+## 대용량 파일 정책
+
+다음 파일과 폴더는 GitHub에 포함하지 않습니다.
 
 ```text
 datasets/
@@ -376,4 +315,3 @@ utils/models/*.tflite
 utils/models/*.task
 ```
 
-For reproduction or judging, place the required datasets and checkpoints in the paths shown above.
