@@ -15,3 +15,5 @@ class BBoxSmoother:
         )
         return self.bbox
 
+    def reset(self):
+        self.bbox = None

@@ -181,6 +181,7 @@ def main():
     buffer = TemporalRGBBuffer(CFG.window_size)
     risk_smoother = ScoreSmoother(CFG.stable_ema_alpha)
     risk_state = RiskHysteresis()
+    bad_frame_count = 0
     scores = {
         "fake_probability": 0.0,
         "artifact_fake": 0.0,
@@ -205,17 +206,58 @@ def main():
             prev = now
             smoothed_fps = inst_fps if smoothed_fps == 0 else 0.9 * smoothed_fps + 0.1 * inst_fps
 
-            bbox, det_score, _ = detector.detect(frame)
-            bbox = tracker.update(bbox)
+            raw_bbox, det_score, ran_detection = detector.detect(frame)
+            if ran_detection and raw_bbox is None:
+                tracker.reset()
+            bbox = tracker.update(raw_bbox)
             rois, sig9, roi_quality = roi_extractor.extract(frame, bbox=bbox)
-            buffer.append(sig9)
+            if bbox is not None:
+                x1, y1, x2, y2 = bbox
+                face_ratio = min((x2 - x1) / max(width, 1), (y2 - y1) / max(height, 1))
+            else:
+                face_ratio = 0.0
+            verified_input = (
+                bbox is not None
+                and det_score >= CFG.verify_min_detection
+                and roi_quality >= CFG.verify_min_roi_quality
+                and face_ratio >= CFG.verify_min_face_size_ratio
+                and sig9 is not None
+            )
+            if verified_input:
+                bad_frame_count = 0
+                buffer.append(sig9)
+            else:
+                bad_frame_count += 1
+                scores.update(
+                    {
+                        "fake_probability": 0.0,
+                        "artifact_fake": 0.0,
+                        "liveness_score": 0.0,
+                        "confidence_score": 0.0,
+                        "estimated_hr": 0.0,
+                        "pulse_consistency": 0.0,
+                        "buffer_fill": buffer.fill_ratio(),
+                        "risk_state": "Unverified",
+                    }
+                )
+                if bad_frame_count >= CFG.verify_max_bad_frames:
+                    buffer.clear()
+                    risk_smoother.value = None
+                    risk_state.reset("Unverified")
 
-            if bbox is not None and frame_idx % score_every == 0:
+            if verified_input and frame_idx % score_every == 0:
                 face = roi_extractor.aligned_face_crop(frame, bbox, CFG.face_crop_size)
                 if face is not None:
                     scores = run_models(rppg, artifact, fusion, face, buffer, roi_quality, det_score, fps, device)
+                    input_reliability = min(det_score, roi_quality, scores["buffer_fill"])
+                    if input_reliability < CFG.high_risk_min_quality:
+                        scores["fake_probability"] = min(scores["fake_probability"], 0.84)
                     scores["fake_probability"] = risk_smoother.update(scores["fake_probability"])
-                    scores["risk_state"] = risk_state.update(scores["fake_probability"])
+                    scores["risk_state"] = risk_state.update(
+                        scores["fake_probability"],
+                        verified=True,
+                        allow_high=input_reliability >= CFG.high_risk_min_quality,
+                    )
 
             state = scores.get("risk_state", "Low")
             state_color = risk_color_bgr(state)
@@ -230,7 +272,8 @@ def main():
             draw_text(frame, f"Risk Level: {risk_label(state)}", (28, 36), state_color, 0.78, 2)
             draw_text(frame, f"Risk Score: {scores['fake_probability']:.3f}", (28, 68), state_color, 0.72, 2)
             draw_bar(frame, "Liveness", scores["liveness_score"], 28, 108, 230, (120, 240, 150))
-            draw_text(frame, f"HR: {scores['estimated_hr']:.1f} bpm", (28, 158), (245, 245, 245), 0.62, 2)
+            hr_text = "HR: not reliable" if state in ("High", "Unverified") else f"HR: {scores['estimated_hr']:.1f} bpm"
+            draw_text(frame, hr_text, (28, 158), (245, 245, 245), 0.62, 2)
             draw_text(frame, f"FPS: {smoothed_fps:.1f}", (28, 188), (205, 215, 230), 0.52, 1)
             if args.debug:
                 draw_text(

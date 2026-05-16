@@ -68,6 +68,7 @@ class RealtimeDeepfakePipeline:
         }
         self.risk_smoother = ScoreSmoother(CFG.stable_ema_alpha)
         self.risk_hysteresis = RiskHysteresis()
+        self.bad_frame_count = 0
         self.frame_idx = 0
 
     def close(self):
@@ -85,14 +86,53 @@ class RealtimeDeepfakePipeline:
                 smoothed[key] = float(alpha * value + (1.0 - alpha) * old)
         return smoothed
 
+    def _face_size_ratio(self, frame_bgr, bbox):
+        if bbox is None:
+            return 0.0
+        h, w = frame_bgr.shape[:2]
+        x1, y1, x2, y2 = bbox
+        face_w = max(0, x2 - x1)
+        face_h = max(0, y2 - y1)
+        return min(face_w / max(w, 1), face_h / max(h, 1))
+
+    def _mark_unverified(self, clear_buffer=False):
+        if clear_buffer:
+            self.buffer.clear()
+            self.risk_smoother.value = None
+            self.risk_hysteresis.reset("Unverified")
+        self.last_scores.update(
+            {
+                "fake_probability": 0.0,
+                "liveness_score": 0.0,
+                "confidence_score": 0.0,
+                "estimated_hr": 0.0,
+                "risk_state": "Unverified",
+            }
+        )
+
     @torch.no_grad()
     def process(self, frame_bgr, fps_hint: float):
-        bbox, det_score, _ = self.face_detector.detect(frame_bgr)
-        bbox = self.tracker.update(bbox)
+        raw_bbox, det_score, ran_detection = self.face_detector.detect(frame_bgr)
+        if ran_detection and raw_bbox is None:
+            self.tracker.reset()
+        bbox = self.tracker.update(raw_bbox)
         rois, roi_rgb, roi_quality = self.roi_extractor.extract(frame_bgr, bbox=bbox)
-        self.buffer.append(roi_rgb)
+        face_ratio = self._face_size_ratio(frame_bgr, bbox)
+        verified_input = (
+            bbox is not None
+            and det_score >= CFG.verify_min_detection
+            and roi_quality >= CFG.verify_min_roi_quality
+            and face_ratio >= CFG.verify_min_face_size_ratio
+            and roi_rgb is not None
+        )
+        if verified_input:
+            self.bad_frame_count = 0
+            self.buffer.append(roi_rgb)
+        else:
+            self.bad_frame_count += 1
+            self._mark_unverified(clear_buffer=self.bad_frame_count >= CFG.verify_max_bad_frames)
 
-        should_score = self.frame_idx % CFG.score_interval_frames == 0 and bbox is not None
+        should_score = self.frame_idx % CFG.score_interval_frames == 0 and verified_input
         self.frame_idx += 1
         if should_score:
             face = self.roi_extractor.aligned_face_crop(frame_bgr, bbox, CFG.face_crop_size)
@@ -137,8 +177,11 @@ class RealtimeDeepfakePipeline:
                     fake = artifact_fake
                     estimated_hr = 0.0
 
+                input_reliability = min(det_score, roi_quality, fill_ratio)
                 if confidence < 0.35:
                     fake *= 0.9
+                if input_reliability < CFG.high_risk_min_quality:
+                    fake = min(fake, 0.84)
 
                 raw_scores = {
                     "fake_probability": float(np.clip(fake, 0.0, 1.0)),
@@ -149,9 +192,19 @@ class RealtimeDeepfakePipeline:
                 self.last_scores = self._smooth_scores(raw_scores, fill_ratio)
                 display_risk = self.risk_smoother.update(self.last_scores["fake_probability"])
                 self.last_scores["fake_probability"] = display_risk
-                self.last_scores["risk_state"] = self.risk_hysteresis.update(display_risk)
+                allow_high = input_reliability >= CFG.high_risk_min_quality
+                self.last_scores["risk_state"] = self.risk_hysteresis.update(
+                    display_risk,
+                    verified=True,
+                    allow_high=allow_high,
+                )
         else:
-            self.last_scores["confidence_score"] = min(self.last_scores["confidence_score"], self.buffer.fill_ratio())
+            if not verified_input:
+                self.last_scores["risk_state"] = "Unverified"
+                self.last_scores["confidence_score"] = 0.0
+                self.last_scores["estimated_hr"] = 0.0
+            else:
+                self.last_scores["confidence_score"] = min(self.last_scores["confidence_score"], self.buffer.fill_ratio())
 
         return bbox, rois, self.last_scores
 

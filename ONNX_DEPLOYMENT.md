@@ -91,6 +91,7 @@ Keep `confidence_score` internal unless it is recalibrated.
 
 Apply these outside ONNX with smoothing/hysteresis:
 
+- `Unverified`: no face, low detection score, poor ROI quality, small face, or insufficient buffer
 - `Low Risk`: risk score below `0.65`
 - `Watch`: enters at `0.65`, exits below `0.55`
 - `High Risk`: enters at `0.85`, exits below `0.75`

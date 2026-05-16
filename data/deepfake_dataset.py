@@ -5,14 +5,22 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from data.transforms import frame_to_tensor_bgr, normalize_roi_sequence
+from data.transforms import augment_realtime_artifacts, frame_to_tensor_bgr, normalize_roi_sequence
 
 
 class DeepfakeFrameDataset(Dataset):
-    def __init__(self, root="datasets/FaceForensics++", image_size=96, max_frames_per_video=8, frames_dir=None):
+    def __init__(
+        self,
+        root="datasets/FaceForensics++",
+        image_size=96,
+        max_frames_per_video=8,
+        frames_dir=None,
+        augment=False,
+    ):
         self.root = Path(root)
         self.image_size = image_size
         self.max_frames_per_video = max_frames_per_video
+        self.augment = augment
         self.samples = []
         frames_root = Path(frames_dir) if frames_dir else self.root / "frames"
         if frames_root.exists():
@@ -39,6 +47,8 @@ class DeepfakeFrameDataset(Dataset):
             if frame is None:
                 frame = torch.zeros(3, self.image_size, self.image_size)
             else:
+                if self.augment:
+                    frame = augment_realtime_artifacts(frame)
                 frame = frame_to_tensor_bgr(frame, self.image_size)
             return frame, torch.tensor(label, dtype=torch.float32)
 
@@ -50,6 +60,8 @@ class DeepfakeFrameDataset(Dataset):
         if not ok:
             frame = torch.zeros(3, self.image_size, self.image_size)
         else:
+            if self.augment:
+                frame = augment_realtime_artifacts(frame)
             frame = frame_to_tensor_bgr(frame, self.image_size)
         return frame, torch.tensor(label, dtype=torch.float32)
 
@@ -64,6 +76,7 @@ class FusionClipDataset(Dataset):
         frames_dir=None,
         rppg_dir=None,
         return_quality=False,
+        augment=False,
     ):
         self.root = Path(root)
         self.image_size = image_size
@@ -72,6 +85,7 @@ class FusionClipDataset(Dataset):
         self.frames_root = Path(frames_dir) if frames_dir else self.root / "frames"
         self.rppg_root = Path(rppg_dir) if rppg_dir else self.root / "rppg"
         self.return_quality = return_quality
+        self.augment = augment
         self._length_cache = {}
         self._quality_cache = {}
         self.samples = []
@@ -142,6 +156,8 @@ class FusionClipDataset(Dataset):
         if frame is None:
             face = torch.zeros(3, self.image_size, self.image_size)
         else:
+            if self.augment:
+                frame = augment_realtime_artifacts(frame)
             face = frame_to_tensor_bgr(frame, self.image_size)
         if self.return_quality:
             quality = self._load_quality_window(rppg_path, start)

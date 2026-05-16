@@ -10,6 +10,9 @@ class TemporalRGBBuffer:
         if value is not None and len(value) == 9:
             self.values.append(np.asarray(value, dtype=np.float32))
 
+    def clear(self):
+        self.values.clear()
+
     def ready(self):
         return len(self.values) == self.values.maxlen
 

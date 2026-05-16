@@ -25,7 +25,10 @@ def draw_overlays(frame, bbox=None, rois=None, scores=None, fps=0.0):
         (f"Risk Level: {risk_label(state)}", state_color),
         (f"Risk Score: {scores.get('fake_probability', 0.0):.3f}", state_color),
         (f"Liveness: {scores.get('liveness_score', 0.0):.3f}", (120, 240, 150)),
-        (f"HR: {scores.get('estimated_hr', 0.0):.1f} bpm", (255, 255, 255)),
+        (
+            "HR: not reliable" if state in ("High", "Unverified") else f"HR: {scores.get('estimated_hr', 0.0):.1f} bpm",
+            (255, 255, 255),
+        ),
         (f"FPS: {fps:.1f}", (210, 220, 230)),
     ]
     y = 28

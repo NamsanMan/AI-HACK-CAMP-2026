@@ -27,7 +27,8 @@ def parse_args():
     parser.add_argument("--artifact-backbone", default=CFG.artifact_backbone, choices=["custom", "rexnet_100", "rexnet_150"])
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--grad-accum-steps", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--rppg-lr", type=float, default=1e-5)
     parser.add_argument("--artifact-lr", type=float, default=1e-6)
@@ -36,6 +37,8 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--resume", default="")
     parser.add_argument("--finetune-branches", action="store_true")
+    parser.add_argument("--augment", action="store_true", default=True, help="Use webcam-like face crop augmentations for training.")
+    parser.add_argument("--no-augment", action="store_false", dest="augment")
     parser.add_argument("--artifact-aux-weight", type=float, default=0.20)
     parser.add_argument("--liveness-aux-weight", type=float, default=0.10)
     parser.add_argument("--out", default=CFG.fusion_weights)
@@ -192,7 +195,7 @@ def main():
     torch.manual_seed(args.seed)
     device = get_device()
 
-    dataset = FusionClipDataset(
+    split_dataset = FusionClipDataset(
         args.data_root,
         image_size=CFG.face_crop_size,
         window_size=CFG.window_size,
@@ -200,13 +203,34 @@ def main():
         frames_dir=args.frames_dir or None,
         rppg_dir=args.rppg_dir or None,
         return_quality=True,
+        augment=False,
     )
-    if len(dataset) == 0:
+    if len(split_dataset) == 0:
         raise RuntimeError(f"No matched frame/rPPG samples found under {args.data_root}")
 
-    train_idx, val_idx, train_videos, val_videos = make_video_split(dataset, args.val_ratio, args.seed)
-    train_set = Subset(dataset, train_idx)
-    val_set = Subset(dataset, val_idx)
+    train_dataset = FusionClipDataset(
+        args.data_root,
+        image_size=CFG.face_crop_size,
+        window_size=CFG.window_size,
+        window_stride=CFG.score_interval_frames,
+        frames_dir=args.frames_dir or None,
+        rppg_dir=args.rppg_dir or None,
+        return_quality=True,
+        augment=args.augment,
+    )
+    val_dataset = FusionClipDataset(
+        args.data_root,
+        image_size=CFG.face_crop_size,
+        window_size=CFG.window_size,
+        window_stride=CFG.score_interval_frames,
+        frames_dir=args.frames_dir or None,
+        rppg_dir=args.rppg_dir or None,
+        return_quality=True,
+        augment=False,
+    )
+    train_idx, val_idx, train_videos, val_videos = make_video_split(split_dataset, args.val_ratio, args.seed)
+    train_set = Subset(train_dataset, train_idx)
+    val_set = Subset(val_dataset, val_idx)
     loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=device.type == "cuda")
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=device.type == "cuda")
 
@@ -232,8 +256,8 @@ def main():
     best_auc = float(resume_ckpt.get("val_auc", -1.0)) if isinstance(resume_ckpt, dict) else -1.0
 
     print(
-        f"dataset={len(dataset)} train_samples={len(train_set)} val_samples={len(val_set)} "
-        f"train_videos={train_videos} val_videos={val_videos}"
+        f"dataset={len(split_dataset)} train_samples={len(train_set)} val_samples={len(val_set)} "
+        f"train_videos={train_videos} val_videos={val_videos} augment={args.augment}"
     )
     print(
         f"loaded_rppg={rppg_ckpt is not None} loaded_artifact={artifact_ckpt is not None} "
@@ -246,7 +270,11 @@ def main():
         set_branch_train_mode(rppg, artifact, args.finetune_branches)
         fusion.train()
         total = 0.0
-        for roi, face, quality, label in tqdm(loader, desc=f"fusion epoch {epoch + 1}/{args.epochs}"):
+        opt.zero_grad()
+        for step, (roi, face, quality, label) in enumerate(
+            tqdm(loader, desc=f"fusion epoch {epoch + 1}/{args.epochs}"),
+            start=1,
+        ):
             roi = roi.to(device)
             face = face.to(device)
             quality = quality.to(device)
@@ -254,10 +282,17 @@ def main():
 
             outputs, artifact_out = forward_batch(rppg, artifact, fusion, roi, face, quality, args.finetune_branches)
             loss = compute_loss(outputs, artifact_out, label, args, loss_fn)
-            opt.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(fusion.parameters(), 5.0)
-            opt.step()
+            (loss / max(args.grad_accum_steps, 1)).backward()
+            if step % max(args.grad_accum_steps, 1) == 0 or step == len(loader):
+                if args.finetune_branches:
+                    torch.nn.utils.clip_grad_norm_(
+                        list(fusion.parameters()) + list(rppg.parameters()) + list(artifact.parameters()),
+                        5.0,
+                    )
+                else:
+                    torch.nn.utils.clip_grad_norm_(fusion.parameters(), 5.0)
+                opt.step()
+                opt.zero_grad()
             total += float(loss.item())
 
         train_loss = total / max(len(loader), 1)

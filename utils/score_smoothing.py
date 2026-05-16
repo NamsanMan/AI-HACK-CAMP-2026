@@ -26,18 +26,27 @@ class RiskHysteresis:
         self.high_exit = high_exit
         self.state = "Low"
 
-    def update(self, score: float) -> str:
+    def reset(self, state: str = "Low"):
+        self.state = state
+        return self.state
+
+    def update(self, score: float, verified: bool = True, allow_high: bool = True) -> str:
+        if not verified:
+            self.state = "Unverified"
+            return self.state
         score = float(score)
+        if self.state == "Unverified":
+            self.state = "Low"
         if self.state == "High":
             if score <= self.high_exit:
                 self.state = "Suspicious" if score >= self.suspicious_exit else "Low"
         elif self.state == "Suspicious":
-            if score >= self.high_enter:
+            if allow_high and score >= self.high_enter:
                 self.state = "High"
             elif score <= self.suspicious_exit:
                 self.state = "Low"
         else:
-            if score >= self.high_enter:
+            if allow_high and score >= self.high_enter:
                 self.state = "High"
             elif score >= self.suspicious_enter:
                 self.state = "Suspicious"
@@ -45,6 +54,8 @@ class RiskHysteresis:
 
 
 def risk_color_bgr(state: str):
+    if state == "Unverified":
+        return (170, 170, 170)
     if state == "High":
         return (40, 40, 255)
     if state == "Suspicious":
@@ -53,6 +64,8 @@ def risk_color_bgr(state: str):
 
 
 def risk_label(state: str):
+    if state == "Unverified":
+        return "Unverified"
     if state == "High":
         return "High Risk"
     if state == "Suspicious":

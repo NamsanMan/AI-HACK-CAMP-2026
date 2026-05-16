@@ -42,3 +42,22 @@ The realtime/video UI uses hysteresis thresholds for stable display:
 
 This keeps short real-video spikes from becoming warnings while preserving clear
 high-risk display for strong fake detections.
+
+## Robustness Retraining
+
+For better webcam/deploy generalization, retrain the artifact branch with
+realtime augmentations enabled. This does not require re-running preprocessing.
+
+```powershell
+python train_artifact.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --artifact-backbone rexnet_100 --epochs 15 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --backbone-lr 7e-6 --augment
+```
+
+Then retrain frozen fusion with augmented face crops:
+
+```powershell
+python train_fusion.py --data-root datasets/FaceForensics++ --frames-dir datasets/FaceForensics++/face_frames --rppg-dir datasets/FaceForensics++/rppg_v2 --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --artifact-backbone rexnet_100 --epochs 20 --batch-size 32 --grad-accum-steps 2 --num-workers 2 --val-ratio 0.1 --lr 7e-4 --augment
+```
+
+Use smaller batches for robustness. Avoid branch fine-tuning unless validation
+AUC improves. In deployment, missing or low-quality face input is shown as
+`Unverified`, not `High Risk`.

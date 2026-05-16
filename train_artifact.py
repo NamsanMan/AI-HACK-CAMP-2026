@@ -19,7 +19,8 @@ def parse_args():
     parser.add_argument("--data-root", default="datasets/FaceForensics++")
     parser.add_argument("--frames-dir", default="", help="Preprocessed frames root with real/fake subfolders.")
     parser.add_argument("--epochs", type=int, default=3)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--grad-accum-steps", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--backbone-lr", type=float, default=1e-5)
     parser.add_argument("--artifact-backbone", default=CFG.artifact_backbone, choices=["custom", "rexnet_100", "rexnet_150"])
@@ -28,6 +29,8 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--resume", default="", help="Checkpoint path to resume model weights from.")
+    parser.add_argument("--augment", action="store_true", default=True, help="Use webcam-like realtime augmentations.")
+    parser.add_argument("--no-augment", action="store_false", dest="augment")
     parser.add_argument("--out", default="")
     return parser.parse_args()
 
@@ -98,12 +101,24 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     device = get_device()
-    dataset = DeepfakeFrameDataset(args.data_root, image_size=CFG.face_crop_size, frames_dir=args.frames_dir or None)
-    if len(dataset) == 0:
+    split_dataset = DeepfakeFrameDataset(args.data_root, image_size=CFG.face_crop_size, frames_dir=args.frames_dir or None)
+    if len(split_dataset) == 0:
         raise RuntimeError(f"No FaceForensics++ frames/videos found under {args.data_root}")
-    train_idx, val_idx = make_video_split(dataset, args.val_ratio, args.seed)
-    train_set = Subset(dataset, train_idx)
-    val_set = Subset(dataset, val_idx)
+    train_idx, val_idx = make_video_split(split_dataset, args.val_ratio, args.seed)
+    train_dataset = DeepfakeFrameDataset(
+        args.data_root,
+        image_size=CFG.face_crop_size,
+        frames_dir=args.frames_dir or None,
+        augment=args.augment,
+    )
+    val_dataset = DeepfakeFrameDataset(
+        args.data_root,
+        image_size=CFG.face_crop_size,
+        frames_dir=args.frames_dir or None,
+        augment=False,
+    )
+    train_set = Subset(train_dataset, train_idx)
+    val_set = Subset(val_dataset, val_idx)
     loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     model = create_artifact_model(
@@ -111,7 +126,8 @@ def main():
         pretrained=not args.no_pretrained,
     ).to(device)
     if args.resume:
-        model.load_state_dict(torch.load(args.resume, map_location=device))
+        ckpt = torch.load(args.resume, map_location=device)
+        model.load_state_dict(ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt)
     if hasattr(model, "optimizer_param_groups"):
         opt = torch.optim.AdamW(model.optimizer_param_groups(args.backbone_lr, args.lr))
     else:
@@ -120,17 +136,19 @@ def main():
     best_auc = -1.0
     best_path = Path(args.out or f"checkpoints/artifact_{args.artifact_backbone}.pt")
     best_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"dataset={len(dataset)} train_frames={len(train_set)} val_frames={len(val_set)}")
+    print(f"dataset={len(split_dataset)} train_frames={len(train_set)} val_frames={len(val_set)} augment={args.augment}")
     for epoch in range(args.epochs):
         model.train()
         total = 0.0
-        for face, label in tqdm(loader, desc=f"artifact epoch {epoch + 1}/{args.epochs}"):
+        opt.zero_grad()
+        for step, (face, label) in enumerate(tqdm(loader, desc=f"artifact epoch {epoch + 1}/{args.epochs}"), start=1):
             face, label = face.to(device), label.to(device)
             pred = model(face)["artifact_fake"]
             loss = loss_fn(pred, label)
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
+            (loss / max(args.grad_accum_steps, 1)).backward()
+            if step % max(args.grad_accum_steps, 1) == 0 or step == len(loader):
+                opt.step()
+                opt.zero_grad()
             total += float(loss.item())
         train_loss = total / max(len(loader), 1)
         val_loss, val_acc, val_auc = validate(model, val_loader, loss_fn, device)

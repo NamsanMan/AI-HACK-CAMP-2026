@@ -17,6 +17,11 @@ class Config:
     stable_ema_alpha: float = 0.25
     min_detection_confidence: float = 0.55
     min_tracking_confidence: float = 0.55
+    verify_min_detection: float = 0.70
+    verify_min_roi_quality: float = 0.70
+    verify_min_face_size_ratio: float = 0.08
+    verify_max_bad_frames: int = 6
+    high_risk_min_quality: float = 0.45
     roi_alpha: float = 0.28
     device: str = "auto"
     mediapipe_model_dir: str = "utils/models"
