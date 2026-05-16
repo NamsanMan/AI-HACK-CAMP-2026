@@ -47,8 +47,8 @@ def maybe_load(model, path, device):
         ckpt = torch.load(path, map_location=device)
         state = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
         model.load_state_dict(state)
-        return True
-    return False
+        return ckpt if isinstance(ckpt, dict) else {"model": state}
+    return None
 
 
 def sample_video_id(sample):
@@ -216,10 +216,11 @@ def main():
         pretrained=not args.no_pretrained and not Path(args.artifact_weights).exists(),
     ).to(device)
     fusion = FusionClassifier().to(device)
-    loaded_rppg = maybe_load(rppg, args.rppg_weights, device)
-    loaded_artifact = maybe_load(artifact, args.artifact_weights, device)
+    rppg_ckpt = maybe_load(rppg, args.rppg_weights, device)
+    artifact_ckpt = maybe_load(artifact, args.artifact_weights, device)
+    resume_ckpt = None
     if args.resume:
-        maybe_load(fusion, args.resume, device)
+        resume_ckpt = maybe_load(fusion, args.resume, device)
 
     for p in rppg.parameters():
         p.requires_grad = args.finetune_branches
@@ -228,16 +229,18 @@ def main():
 
     opt = build_optimizer(args, rppg, artifact, fusion)
     loss_fn = nn.BCELoss()
-    best_auc = -1.0
+    best_auc = float(resume_ckpt.get("val_auc", -1.0)) if isinstance(resume_ckpt, dict) else -1.0
 
     print(
         f"dataset={len(dataset)} train_samples={len(train_set)} val_samples={len(val_set)} "
         f"train_videos={train_videos} val_videos={val_videos}"
     )
     print(
-        f"loaded_rppg={loaded_rppg} loaded_artifact={loaded_artifact} "
+        f"loaded_rppg={rppg_ckpt is not None} loaded_artifact={artifact_ckpt is not None} "
         f"finetune_branches={args.finetune_branches}"
     )
+    if best_auc >= 0.0:
+        print(f"resume_best_auc={best_auc:.4f}; will only overwrite if validation improves")
 
     for epoch in range(args.epochs):
         set_branch_train_mode(rppg, artifact, args.finetune_branches)
