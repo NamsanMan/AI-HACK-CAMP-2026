@@ -25,6 +25,8 @@ pip install -r requirements.txt
 
 CUDA가 가능하면 PyTorch가 자동으로 GPU를 사용하고, 아니면 CPU로 실행됩니다.
 
+ReXNet artifact backbone을 쓰려면 `timm`이 필요합니다. `requirements.txt`에 포함되어 있습니다.
+
 ## Current Dataset Layout
 
 현재 확인된 구조:
@@ -103,24 +105,32 @@ Stage 1: UBFC-rPPG로 rPPG branch 학습
 python train_rppg.py --data-root datasets/UBFC-rPPG --epochs 3
 ```
 
-Stage 2: 전처리된 FaceForensics++ frame으로 artifact branch 학습
+Stage 2: 전처리된 FaceForensics++ face frame으로 ReXNet artifact branch 학습
 
 ```bash
 python train_artifact.py \
   --data-root datasets/FaceForensics++ \
-  --frames-dir datasets/FaceForensics++/frames \
-  --epochs 3
+  --frames-dir datasets/FaceForensics++/face_frames \
+  --artifact-backbone rexnet_100 \
+  --epochs 15 \
+  --batch-size 32 \
+  --num-workers 2
 ```
+
+ReXNet-100은 NAVER AI Lab/CLOVA AI의 ReXNet 계열이며, `timm`의 ImageNet pretrained weight를 사용합니다. 더 큰 backbone이 필요하면 `--artifact-backbone rexnet_150`을 시도할 수 있습니다.
+
+Artifact 학습은 video stem 기준으로 train/validation을 나눕니다. 같은 비디오에서 나온 frame이 train과 validation에 동시에 들어가지 않도록 막아 데이터 리키지를 줄입니다. validation AUC가 가장 높은 checkpoint가 저장됩니다.
 
 Stage 3: 전처리된 frame + rPPG npy를 매칭해 fusion classifier 학습
 
 ```bash
 python train_fusion.py \
   --data-root datasets/FaceForensics++ \
-  --frames-dir datasets/FaceForensics++/frames \
+  --frames-dir datasets/FaceForensics++/face_frames \
   --rppg-dir datasets/FaceForensics++/rppg_v2 \
+  --artifact-backbone rexnet_100 \
   --rppg-weights checkpoints/rppg_tcn.pt \
-  --artifact-weights checkpoints/artifact_cnn.pt \
+  --artifact-weights checkpoints/artifact_rexnet_100.pt \
   --epochs 3
 ```
 
@@ -129,8 +139,10 @@ Evaluation도 같은 전처리 구조를 사용합니다.
 ```bash
 python eval.py \
   --data-root datasets/FaceForensics++ \
-  --frames-dir datasets/FaceForensics++/frames \
+  --frames-dir datasets/FaceForensics++/face_frames \
   --rppg-dir datasets/FaceForensics++/rppg_v2 \
+  --artifact-backbone rexnet_100 \
+  --artifact-weights checkpoints/artifact_rexnet_100.pt \
   --fusion-weights checkpoints/fusion_model.pt
 ```
 
@@ -139,9 +151,11 @@ python eval.py \
 Artifact branch:
 
 ```text
-input: image/frame tensor, shape = 3 x 128 x 128
+input: image/frame tensor, shape = 3 x 96 x 96
 label: 0 real, 1 fake
 ```
+
+현재 기본 artifact backbone은 `rexnet_100`이고 입력 크기는 `3 x 96 x 96`입니다. 기존 custom CNN baseline은 `--artifact-backbone custom`으로 선택할 수 있습니다.
 
 rPPG branch:
 

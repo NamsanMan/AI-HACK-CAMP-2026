@@ -7,7 +7,7 @@ import torch
 
 from config import CFG
 from data.transforms import normalize_roi_sequence
-from models.artifact_cnn import ArtifactCNN
+from models.artifact_factory import create_artifact_model
 from models.fusion_model import FusionClassifier
 from models.rppg_tcn import RPPGTCN
 from utils.face_detector import FaceDetector
@@ -15,6 +15,7 @@ from utils.landmark_roi import LandmarkROIExtractor
 from utils.rppg_signal import TemporalRGBBuffer, estimate_signal_quality
 from utils.tracker import BBoxSmoother
 from utils.visualization import draw_overlays
+from utils.checkpoints import prefer_fusion_checkpoint
 
 
 def get_device():
@@ -29,6 +30,14 @@ def to_face_tensor(face_bgr, device):
     return tensor.to(device)
 
 
+def maybe_load_state(model, path, device):
+    if path and Path(path).exists():
+        ckpt = torch.load(path, map_location=device)
+        model.load_state_dict(ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt)
+        return True
+    return False
+
+
 class RealtimeDeepfakePipeline:
     def __init__(self):
         self.device = get_device()
@@ -37,8 +46,18 @@ class RealtimeDeepfakePipeline:
         self.roi_extractor = LandmarkROIExtractor(CFG.min_tracking_confidence)
         self.buffer = TemporalRGBBuffer(CFG.window_size)
         self.rppg = RPPGTCN().to(self.device).eval()
-        self.artifact = ArtifactCNN().to(self.device).eval()
+        self.artifact = create_artifact_model(
+            CFG.artifact_backbone,
+            pretrained=CFG.artifact_pretrained and not Path(CFG.artifact_weights).exists(),
+        ).to(self.device).eval()
         self.fusion = FusionClassifier().to(self.device).eval()
+        maybe_load_state(self.rppg, prefer_fusion_checkpoint(CFG.rppg_weights, "rppg_fusion_best.pt"), self.device)
+        maybe_load_state(
+            self.artifact,
+            prefer_fusion_checkpoint(CFG.artifact_weights, f"artifact_{CFG.artifact_backbone}_fusion_best.pt"),
+            self.device,
+        )
+        maybe_load_state(self.fusion, CFG.fusion_weights, self.device)
         self.last_scores = {"fake_probability": 0.0, "liveness_score": 0.0, "confidence_score": 0.0, "estimated_hr": 0.0}
         self.frame_idx = 0
 

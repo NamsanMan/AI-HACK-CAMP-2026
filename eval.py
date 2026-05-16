@@ -7,7 +7,7 @@ from tqdm import tqdm
 from config import CFG
 from data.deepfake_dataset import FusionClipDataset
 from demo_runtime import get_device
-from models.artifact_cnn import ArtifactCNN
+from models.artifact_factory import create_artifact_model
 from models.fusion_model import FusionClassifier
 from models.rppg_tcn import RPPGTCN
 from utils.checkpoints import prefer_fusion_checkpoint
@@ -20,6 +20,8 @@ def parse_args():
     parser.add_argument("--rppg-dir", default="")
     parser.add_argument("--rppg-weights", default="")
     parser.add_argument("--artifact-weights", default="")
+    parser.add_argument("--artifact-backbone", default=CFG.artifact_backbone, choices=["custom", "rexnet_100", "rexnet_150"])
+    parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--fusion-weights", default="")
     parser.add_argument("--batch-size", type=int, default=8)
     return parser.parse_args()
@@ -40,16 +42,22 @@ def main():
         raise RuntimeError(f"No matched evaluation frame/rPPG samples found under {args.data_root}")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
     rppg = RPPGTCN().to(device).eval()
-    artifact = ArtifactCNN().to(device).eval()
+    artifact = create_artifact_model(
+        args.artifact_backbone,
+        pretrained=not args.no_pretrained and not bool(args.artifact_weights),
+    ).to(device).eval()
     fusion = FusionClassifier().to(device).eval()
     rppg_weights = prefer_fusion_checkpoint(args.rppg_weights, "rppg_fusion_best.pt")
-    artifact_weights = prefer_fusion_checkpoint(args.artifact_weights, "artifact_fusion_best.pt")
+    artifact_weights = prefer_fusion_checkpoint(args.artifact_weights, f"artifact_{args.artifact_backbone}_fusion_best.pt")
     if rppg_weights:
-        rppg.load_state_dict(torch.load(rppg_weights, map_location=device))
+        ckpt = torch.load(rppg_weights, map_location=device)
+        rppg.load_state_dict(ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt)
     if artifact_weights:
-        artifact.load_state_dict(torch.load(artifact_weights, map_location=device))
+        ckpt = torch.load(artifact_weights, map_location=device)
+        artifact.load_state_dict(ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt)
     if args.fusion_weights:
-        fusion.load_state_dict(torch.load(args.fusion_weights, map_location=device))
+        ckpt = torch.load(args.fusion_weights, map_location=device)
+        fusion.load_state_dict(ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt)
 
     correct, total = 0, 0
     with torch.no_grad():

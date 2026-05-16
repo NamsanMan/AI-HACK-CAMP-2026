@@ -9,7 +9,7 @@ from tqdm import tqdm
 from config import CFG
 from data.deepfake_dataset import FusionClipDataset
 from demo_runtime import get_device
-from models.artifact_cnn import ArtifactCNN
+from models.artifact_factory import create_artifact_model
 from models.fusion_model import FusionClassifier
 from models.rppg_tcn import RPPGTCN
 
@@ -21,6 +21,8 @@ def parse_args():
     parser.add_argument("--rppg-dir", default="", help="Preprocessed rPPG root with real/fake subfolders.")
     parser.add_argument("--rppg-weights", default="")
     parser.add_argument("--artifact-weights", default="")
+    parser.add_argument("--artifact-backbone", default=CFG.artifact_backbone, choices=["custom", "rexnet_100", "rexnet_150"])
+    parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -30,7 +32,8 @@ def parse_args():
 
 def maybe_load(model, path, device):
     if path and Path(path).exists():
-        model.load_state_dict(torch.load(path, map_location=device))
+        ckpt = torch.load(path, map_location=device)
+        model.load_state_dict(ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt)
 
 
 def main():
@@ -49,7 +52,10 @@ def main():
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
     rppg = RPPGTCN().to(device).eval()
-    artifact = ArtifactCNN().to(device).eval()
+    artifact = create_artifact_model(
+        args.artifact_backbone,
+        pretrained=not args.no_pretrained and not bool(args.artifact_weights),
+    ).to(device).eval()
     fusion = FusionClassifier().to(device)
     maybe_load(rppg, args.rppg_weights, device)
     maybe_load(artifact, args.artifact_weights, device)
@@ -76,7 +82,7 @@ def main():
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     torch.save(fusion.state_dict(), args.out)
     torch.save(rppg.state_dict(), Path(args.out).with_name("rppg_fusion_best.pt"))
-    torch.save(artifact.state_dict(), Path(args.out).with_name("artifact_fusion_best.pt"))
+    torch.save(artifact.state_dict(), Path(args.out).with_name(f"artifact_{args.artifact_backbone}_fusion_best.pt"))
     print(f"saved {args.out}")
 
 

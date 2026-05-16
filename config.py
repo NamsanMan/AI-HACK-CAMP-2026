@@ -20,6 +20,11 @@ class Config:
     roi_alpha: float = 0.28
     device: str = "auto"
     mediapipe_model_dir: str = "utils/models"
+    artifact_backbone: str = "rexnet_100"
+    artifact_pretrained: bool = True
+    rppg_weights: str = "checkpoints/rppg_tcn.pt"
+    artifact_weights: str = "checkpoints/artifact_rexnet_100.pt"
+    fusion_weights: str = "checkpoints/fusion_model.pt"
 
     @property
     def window_size(self) -> int:
