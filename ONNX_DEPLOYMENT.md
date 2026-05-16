@@ -18,6 +18,14 @@ Those pieces should run in the realtime plugin/runtime.
 
 Use the best frozen-branch fusion checkpoint unless branch fine-tuning improved validation AUC.
 
+Raw-score ONNX for evaluation/plugin integration without thresholding:
+
+```powershell
+python export_onnx_raw.py --out checkpoints/pipeline_raw.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --artifact-backbone rexnet_100 --opset 17 --verify
+```
+
+Full tensor-output ONNX, including internal confidence output:
+
 ```powershell
 python export_onnx.py --out checkpoints/pipeline.onnx --rppg-weights checkpoints/rppg_tcn.pt --artifact-weights checkpoints/artifact_rexnet_100.pt --fusion-weights checkpoints/fusion_model.pt --artifact-backbone rexnet_100 --opset 17 --verify
 ```
@@ -58,6 +66,16 @@ python export_onnx.py --out checkpoints/pipeline.onnx --rppg-weights checkpoints
   - `quality[:, 2]`: motion/signal quality, `0..1`
 
 ## Outputs
+
+`pipeline_raw.onnx` outputs:
+
+- `fake_probability`: raw fused fake/risk probability, `B`
+- `liveness_score`: raw fused liveness score, `B`
+- `estimated_hr`: rPPG branch HR estimate in BPM, `B`
+- `artifact_fake`: artifact branch fake probability, `B`
+- `rppg_liveness`: rPPG branch liveness score, `B`
+
+`pipeline.onnx` outputs:
 
 - `fake_probability`: fused fake/risk probability, `B`
 - `liveness_score`: fused liveness score, `B`
