@@ -15,10 +15,10 @@ class ScoreSmoother:
 class RiskHysteresis:
     def __init__(
         self,
-        suspicious_enter: float = 0.55,
-        suspicious_exit: float = 0.45,
-        high_enter: float = 0.75,
-        high_exit: float = 0.65,
+        suspicious_enter: float = 0.65,
+        suspicious_exit: float = 0.55,
+        high_enter: float = 0.85,
+        high_exit: float = 0.75,
     ):
         self.suspicious_enter = suspicious_enter
         self.suspicious_exit = suspicious_exit
@@ -51,3 +51,10 @@ def risk_color_bgr(state: str):
         return (40, 180, 255)
     return (80, 220, 80)
 
+
+def risk_label(state: str):
+    if state == "High":
+        return "High Risk"
+    if state == "Suspicious":
+        return "Watch"
+    return "Low Risk"
