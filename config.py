@@ -6,14 +6,20 @@ class Config:
     camera_index: int = 0
     target_fps: int = 30
     fallback_fps: int = 15
-    detection_interval: int = 6
+    detection_interval: int = 7
+    landmark_interval: int = 3
+    mediapipe_downscale_width: int = 320
     window_seconds: float = 3.0
     score_interval_seconds: float = 1.0
-    face_crop_size: int = 128
+    face_crop_size: int = 96
+    min_partial_rppg_frames: int = 12
+    warmup_ema_alpha: float = 0.60
+    stable_ema_alpha: float = 0.25
     min_detection_confidence: float = 0.55
     min_tracking_confidence: float = 0.55
     roi_alpha: float = 0.28
     device: str = "auto"
+    mediapipe_model_dir: str = "utils/models"
 
     @property
     def window_size(self) -> int:
