@@ -19,6 +19,7 @@ def draw_overlays(frame, bbox=None, rois=None, scores=None, fps=0.0):
     scores = scores or {}
     lines = [
         f"Risk(fake): {scores.get('fake_probability', 0.0):.3f}",
+        f"Status: {scores.get('risk_state', 'Low')}",
         f"Liveness: {scores.get('liveness_score', 0.0):.3f}",
         f"Confidence: {scores.get('confidence_score', 0.0):.3f}",
         f"HR: {scores.get('estimated_hr', 0.0):.1f} bpm",
@@ -30,4 +31,3 @@ def draw_overlays(frame, bbox=None, rois=None, scores=None, fps=0.0):
         cv2.putText(frame, text, (16, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         y += 28
     return frame
-

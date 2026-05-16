@@ -11,11 +11,18 @@ from data.transforms import normalize_roi_sequence
 class UBFCRPPGDataset(Dataset):
     """UBFC-rPPG loader. Uses cached ROI npy if present, otherwise samples simple frame means."""
 
-    def __init__(self, root="datasets/UBFC-rPPG", window_size=90, stride=30):
+    def __init__(self, root="datasets/UBFC-rPPG", window_size=90, stride=30, windows_dir=None):
         self.root = Path(root)
         self.window_size = window_size
         self.stride = stride
         self.samples = []
+        self.mode = "video"
+        cache_dir = Path(windows_dir) if windows_dir else self.root / "windows"
+        if cache_dir.exists():
+            self.samples = sorted(cache_dir.glob("*.npz"))
+            self.mode = "cache"
+            return
+
         for subject in sorted(self.root.glob("subject_*")):
             video = next((subject / name for name in ("video.avi", "vid.avi") if (subject / name).exists()), None)
             gt = subject / "ground_truth.txt"
@@ -61,6 +68,12 @@ class UBFCRPPGDataset(Dataset):
         return np.asarray(values[: self.window_size], dtype=np.float32)
 
     def __getitem__(self, idx):
+        if self.mode == "cache":
+            data = np.load(self.samples[idx])
+            seq = normalize_roi_sequence(data["x"].astype(np.float32))
+            hr = float(data["hr"])
+            return torch.from_numpy(seq), torch.tensor(hr, dtype=torch.float32)
+
         video, gt = self.samples[idx]
         seq = normalize_roi_sequence(self._video_to_rgb_means(video))
         hr = self._load_hr(gt)

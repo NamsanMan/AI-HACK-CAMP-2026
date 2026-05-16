@@ -81,6 +81,16 @@ Final-quality rPPG 재추출:
 python preprocess_rppg_ff.py --root datasets/FaceForensics++ --out-dir datasets/FaceForensics++/rppg_v2 --every-n 1
 ```
 
+UBFC-rPPG 성능용 sliding-window cache 생성:
+
+```bash
+python preprocess_ubfc_rppg.py \
+  --root datasets/UBFC-rPPG \
+  --out-dir datasets/UBFC-rPPG/windows \
+  --window-size 90 \
+  --stride 30
+```
+
 ## Realtime Demo
 
 Webcam:
@@ -103,6 +113,17 @@ Stage 1: UBFC-rPPG로 rPPG branch 학습
 
 ```bash
 python train_rppg.py --data-root datasets/UBFC-rPPG --epochs 3
+```
+
+대회용으로는 subject 단위 validation과 best checkpoint 저장을 켜고 더 길게 학습하는 것을 권장합니다.
+
+```bash
+python train_rppg.py \
+  --data-root datasets/UBFC-rPPG \
+  --windows-dir datasets/UBFC-rPPG/windows \
+  --epochs 30 \
+  --batch-size 8 \
+  --val-ratio 0.2
 ```
 
 Stage 2: 전처리된 FaceForensics++ face frame으로 ReXNet artifact branch 학습

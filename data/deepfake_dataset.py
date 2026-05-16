@@ -63,6 +63,7 @@ class FusionClipDataset(Dataset):
         window_stride=30,
         frames_dir=None,
         rppg_dir=None,
+        return_quality=False,
     ):
         self.root = Path(root)
         self.image_size = image_size
@@ -70,7 +71,9 @@ class FusionClipDataset(Dataset):
         self.window_stride = max(1, window_stride)
         self.frames_root = Path(frames_dir) if frames_dir else self.root / "frames"
         self.rppg_root = Path(rppg_dir) if rppg_dir else self.root / "rppg"
+        self.return_quality = return_quality
         self._length_cache = {}
+        self._quality_cache = {}
         self.samples = []
 
         if self.frames_root.exists() and self.rppg_root.exists():
@@ -95,6 +98,29 @@ class FusionClipDataset(Dataset):
             self._length_cache[path] = int(np.load(path, mmap_mode="r").shape[0])
         return self._length_cache[path]
 
+    def _load_quality_window(self, rppg_path, start):
+        meta_path = rppg_path.with_name(rppg_path.name.replace("_rppg.npy", "_meta.npz"))
+        if meta_path not in self._quality_cache:
+            if meta_path.exists():
+                data = np.load(meta_path)
+                quality = data["quality"].astype(np.float32) if "quality" in data.files else np.ones(0, dtype=np.float32)
+            else:
+                quality = np.ones(self._sequence_length(rppg_path), dtype=np.float32)
+            self._quality_cache[meta_path] = quality
+
+        quality = self._quality_cache[meta_path]
+        if quality.size == 0:
+            window = np.zeros(self.window_size, dtype=np.float32)
+        elif len(quality) >= self.window_size:
+            window = quality[start : start + self.window_size]
+        else:
+            pad = np.repeat(quality[-1:], self.window_size - len(quality), axis=0)
+            window = np.concatenate([quality, pad], axis=0)
+        mean_quality = float(np.clip(window.mean(), 0.0, 1.0))
+        valid_ratio = float(np.clip((window > 0).mean(), 0.0, 1.0))
+        stability = float(np.clip(1.0 - window.std(), 0.0, 1.0))
+        return torch.tensor([mean_quality, valid_ratio, stability], dtype=torch.float32)
+
     def _load_roi_window(self, path, start):
         seq = np.load(path).astype(np.float32)
         if seq.size == 0:
@@ -117,4 +143,7 @@ class FusionClipDataset(Dataset):
             face = torch.zeros(3, self.image_size, self.image_size)
         else:
             face = frame_to_tensor_bgr(frame, self.image_size)
+        if self.return_quality:
+            quality = self._load_quality_window(rppg_path, start)
+            return roi, face, quality, torch.tensor(label, dtype=torch.float32)
         return roi, face, torch.tensor(label, dtype=torch.float32)
