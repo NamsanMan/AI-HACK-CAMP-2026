@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "Deepfake Video Call Detector",
+  "version": "0.1.8",
+  "description": "Detects deepfake signals in video call frames using ONNX and rPPG analysis.",
+  "permissions": ["activeTab", "scripting", "offscreen"],
+  "host_permissions": ["<all_urls>", "file:///*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "models/pipeline_raw2.onnx",
+        "ort/*",
+        "ort/*.wasm",
+        "mediapipe/*",
+        "mediapipe/wasm/*",
+        "mediapipe/wasm/*.wasm",
+        "mediapipe/models/*",
+        "offscreen.html",
+        "assets/*",
+        "logo.jpg"
+      ],
+      "matches": ["<all_urls>", "file:///*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "exclude_matches": ["*://*.zoom.us/*", "*://*.zoom.com/*"],
+      "js": ["assets/content.js"],
+      "all_frames": false,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.zoom.us/*",
+        "*://*.zoom.com/*",
+        "*://*.zoomgov.com/*",
+        "*://*.zoomgov.us/*"
+      ],
+      "js": ["assets/content.js"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_title": "Deepfake Detector"
+  }
+}
