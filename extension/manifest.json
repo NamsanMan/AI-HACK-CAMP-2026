@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Only Human Beats",
+  "version": "1.0",
+  "description": "Real-time Deepfake and Heart-rate Analysis Dashboard based on Liveness Detection",
+  "permissions": [
+    "scripting"
+  ],
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; worker-src 'self' 'wasm-unsafe-eval' blob:;"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["ort.min.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["logo.png", "*.onnx", "*.wasm", "*.mjs", "sandbox.html", "ort.min.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "sandbox": {
+    "pages": ["sandbox.html"]
+  }
+}

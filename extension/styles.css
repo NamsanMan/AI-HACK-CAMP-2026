@@ -1,0 +1,147 @@
+/* Antigravity Deepfake Analysis Dashboard Styles */
+
+#deepfake-analysis-dashboard {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 320px;
+    height: auto;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 20px;
+    z-index: 2147483647;
+    color: white;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    transition: width 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275), height 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-radius 0.5s ease;
+    overflow: hidden;
+    cursor: move; /* 드래그 가능 표시 */
+}
+
+/* 최소화 상태: 작은 원형 */
+#deepfake-analysis-dashboard.minimized {
+    width: 88px;
+    height: 88px;
+    padding: 0;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    background-color: #0f172a;
+    background-image: var(--logo-url);
+    background-size: 110%; /* 테두리까지 꽉 차게 확대 */
+    background-position: center;
+    background-repeat: no-repeat;
+    border: 3px solid #38bdf8;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+}
+
+#deepfake-analysis-dashboard.minimized .dashboard-header,
+#deepfake-analysis-dashboard.minimized .metric-container {
+    display: none;
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.dashboard-title {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #38bdf8;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    background: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #10b981;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.2); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+/* Deepfake Probability Section */
+.metric-container {
+    margin-bottom: 24px;
+}
+
+.metric-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: #94a3b8;
+}
+
+.gauge-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#fake-probability-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #38bdf8, #818cf8);
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* rPPG / HR Section */
+.hr-display {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.hr-value {
+    font-size: 32px;
+    font-weight: 800;
+    color: #f43f5e;
+}
+
+.hr-unit {
+    font-size: 14px;
+    color: #94a3b8;
+}
+
+.waveform-container {
+    width: 100%;
+    height: 60px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+#rppg-canvas {
+    width: 100%;
+    height: 100%;
+}
+
+.danger-active {
+    background: rgba(244, 63, 94, 0.9) !important;
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.4);
+}
