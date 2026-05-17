@@ -136,7 +136,6 @@ train_artifact.py           artifact 학습
 train_fusion.py             fusion 학습
 eval_final.py               최종 평가
 export_onnx_raw.py          raw-score ONNX 변환
-export_onnx.py              full-output ONNX 변환
 ```
 
 ## 9. 한계
@@ -145,4 +144,3 @@ export_onnx.py              full-output ONNX 변환
 - 모델 성능은 ROI 품질과 face crop 품질에 영향을 받습니다.
 - 데이터셋 분포와 다른 입력에서는 일반화 성능이 낮아질 수 있습니다.
 - 해커톤 프로토타입 모델 프레임워크이며, 실제 보안 제품 수준의 검증 시스템은 아닙니다.
-
