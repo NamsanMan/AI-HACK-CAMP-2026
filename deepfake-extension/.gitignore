@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist/models
+dist/public/models
 *.local
 
 # Editor directories and files
@@ -22,6 +24,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+*.onnx
 
 # Large sample media
 public/sample/vid.avi
