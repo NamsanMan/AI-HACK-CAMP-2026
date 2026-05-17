@@ -134,10 +134,9 @@ quality feature
 ```text
 fake_probability
 liveness_score
-confidence_score
 ```
 
-최종 risk score는 `fake_probability`를 중심으로 해석합니다. `confidence_score`는 입력 품질과 예측 안정성을 보조적으로 해석하기 위한 값입니다.
+최종 risk score는 `fake_probability`를 중심으로 해석합니다. 최종 프로토타입 ONNX는 `export_onnx_raw.py` 기준이므로 `confidence_score`를 출력하지 않습니다. 입력 신뢰도와 표시 안정성은 runtime의 `quality`, smoothing, thresholding에서 처리합니다.
 
 ## 학습 구조
 
@@ -283,7 +282,6 @@ train_artifact.py           Artifact branch training
 train_fusion.py             Fusion classifier training
 eval_final.py               Final evaluation
 export_onnx_raw.py          Raw-score ONNX export
-export_onnx.py              Full-output ONNX export
 ```
 
 ## 문서
@@ -314,4 +312,3 @@ outputs/
 utils/models/*.tflite
 utils/models/*.task
 ```
-

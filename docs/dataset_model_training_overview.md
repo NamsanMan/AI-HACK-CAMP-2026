@@ -548,11 +548,12 @@ quality     -> fusion reliability input
 ```text
 fake_probability
 liveness_score
-confidence_score
 estimated_hr
 artifact_fake
 rppg_liveness
 ```
+
+`confidence_score`는 raw ONNX 출력에 포함하지 않는다. 입력 신뢰도와 표시 안정성은 runtime의 quality gating, smoothing, thresholding에서 처리한다.
 
 정리하면, 배포용 plugin은 ONNX 모델만 실행하는 것이 아니라 ONNX 입력을 만들기 위한 전처리 runtime도 함께 구현해야 한다.
 
@@ -658,10 +659,9 @@ quality feature에는 다음 정보가 들어간다.
 ```text
 fake_probability
 liveness_score
-confidence_score
 ```
 
-사용자 UI에서는 `confidence_score`를 직접 보여주기보다 내부 안정성 판단용으로 사용한다.
+최종 프로토타입 ONNX는 raw score 기준이므로 `confidence_score`를 출력하지 않는다. 입력 품질 판단은 별도의 quality feature와 runtime 후처리에서 담당한다.
 
 최종 UI에서는 대략 다음 식으로 생각하면 된다.
 
